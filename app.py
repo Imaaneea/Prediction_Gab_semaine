@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pickle
 from tensorflow.keras.models import load_model
+from tensorflow.keras import losses
 
 # =========================
 # Titre de l'application
@@ -46,7 +47,7 @@ st.pyplot(fig)
 # =========================
 @st.cache_resource
 def load_lstm_model():
-    model = load_model("lstm_gab_model.h5")
+    model = load_model("lstm_gab_model.h5", custom_objects={'mse': losses.MeanSquaredError})
     with open("scaler.pkl", "rb") as f:
         scaler = pickle.load(f)
     return model, scaler
