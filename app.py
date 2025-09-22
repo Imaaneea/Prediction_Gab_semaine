@@ -25,38 +25,55 @@ def load_data():
 df = load_data()
 
 # =========================
-# Filtrer par GAB, Région ou Agence
+# Barre latérale : filtres
 # =========================
 st.sidebar.header("Filtres")
-regions = ["Toutes"] + list(df['region'].unique())
+start_date = st.sidebar.date_input("Date de début", df['ds'].min())
+end_date = st.sidebar.date_input("Date de fin", df['ds'].max())
+
+df_filtered = df[(df['ds'] >= pd.to_datetime(start_date)) & (df['ds'] <= pd.to_datetime(end_date))]
+
+regions = ["Toutes"] + list(df_filtered['region'].unique())
 selected_region = st.sidebar.selectbox("Sélectionnez une région :", regions)
 
 if selected_region != "Toutes":
-    df_region = df[df['region'] == selected_region]
+    df_region = df_filtered[df_filtered['region'] == selected_region]
 else:
-    df_region = df.copy()
+    df_region = df_filtered.copy()
 
 agences = ["Toutes"] + list(df_region['agence'].unique())
 selected_agence = st.sidebar.selectbox("Sélectionnez une agence :", agences)
 
 if selected_agence != "Toutes":
-    df_filtered = df_region[df_region['agence'] == selected_agence]
+    df_agence = df_region[df_region['agence'] == selected_agence]
 else:
-    df_filtered = df_region.copy()
+    df_agence = df_region.copy()
 
-gab_list = df_filtered['num_gab'].unique()
+gab_list = df_agence['num_gab'].unique()
 selected_gab = st.sidebar.selectbox("Sélectionnez un GAB :", gab_list)
 
-df_gab = df_filtered[df_filtered['num_gab'] == selected_gab].sort_values('ds')
+df_gab = df_agence[df_agence['num_gab'] == selected_gab].sort_values('ds')
 
 # =========================
-# Affichage tableau de bord indicateurs
+# Tableau de bord indicateurs
 # =========================
 st.subheader("Tableau de bord")
+
 total_montant = df_gab['total_montant'].sum()
 total_nombre = df_gab['total_nombre'].sum()
+
 st.metric("Montant total retiré", f"{total_montant:,.0f} MAD")
-st.metric("Nombre total de retraits", f"{total_nombre:,}")
+st.metric("Nombre total de retraits", f"{total_nombre:,.0f}")
+
+# Nombre de GAB par région
+gabs_region = df_region.groupby('region')['num_gab'].nunique().sort_values(ascending=False)
+st.write("**Nombre de GAB par région**")
+st.bar_chart(gabs_region)
+
+# Top GAB par montant
+top_gabs = df_agence.groupby('num_gab')['total_montant'].sum().sort_values(ascending=False).head(10)
+st.write("**Top 10 des GAB par montant**")
+st.bar_chart(top_gabs)
 
 # =========================
 # Historique des retraits
@@ -85,7 +102,7 @@ model, scaler = load_lstm_model()
 # =========================
 # Prévisions LSTM
 # =========================
-n_steps = 4  # doit correspondre au nombre de semaines utilisées pour l'entraînement
+n_steps = 4
 forecast_periods = 12
 
 y_values = df_gab['y'].values.reshape(-1,1)
