@@ -3,10 +3,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import matplotlib.pyplot as plt
 import joblib
 from tensorflow.keras.models import load_model
-from tensorflow.keras import losses
 
 # =========================
 # Titre et logo
@@ -16,7 +14,6 @@ st.title("Prévision des retraits GAB avec LSTM")
 st.write("Application basée sur le modèle LSTM pour prédire les retraits hebdomadaires des GAB.")
 
 # Sidebar avec logo et filtres
-# =========================
 st.sidebar.image(
     "https://www.albaridbank.ma/themes/baridbank/logo.png",
     use_container_width=True
@@ -68,7 +65,7 @@ df_filtered = df[
 # Fonction de formatage FR
 # =========================
 def format_montant(val):
-    return f"{val:,.2f}".replace(",", " ").replace(".", ",")
+    return f"{val:,.0f} MAD".replace(",", " ")
 
 def format_nombre(val):
     return f"{val:,.0f}".replace(",", " ")
@@ -81,7 +78,7 @@ total_nombre = df_filtered['total_nombre'].sum()
 total_gabs_region = df[df['region'] == selected_region]['num_gab'].nunique()
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Montant total retiré", f"{format_montant(total_montant)} MAD")
+col1.metric("Montant total retiré", format_montant(total_montant))
 col2.metric("Nombre total de retraits", format_nombre(total_nombre))
 col3.metric(f"Nombre de GAB ({selected_region})", format_nombre(total_gabs_region))
 
@@ -90,8 +87,6 @@ col3.metric(f"Nombre de GAB ({selected_region})", format_nombre(total_gabs_regio
 # =========================
 st.subheader("Top 10 des GAB par montant")
 top10 = df[df['region'] == selected_region].groupby('lib_gab')['total_montant'].sum().sort_values(ascending=False).head(10).reset_index()
-
-# Appliquer formatage sur affichage
 top10['total_montant'] = top10['total_montant'].apply(format_montant)
 st.dataframe(top10)
 
@@ -101,7 +96,7 @@ st.dataframe(top10)
 st.subheader(f"Évolution hebdomadaire des retraits pour {selected_gab}")
 df_evo = df_filtered.groupby('ds')['y'].sum().reset_index()
 fig = px.line(df_evo, x='ds', y='y', markers=True)
-fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait")
+fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
 st.plotly_chart(fig, use_container_width=True)
 
 # =========================
@@ -147,7 +142,7 @@ if len(y_values) >= n_steps:
         ]),
         x="ds", y="valeur", color="type", markers=True
     )
-    fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait")
+    fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
     st.plotly_chart(fig2, use_container_width=True)
 
     # Télécharger les résultats
