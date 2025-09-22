@@ -16,6 +16,13 @@ st.image("https://www.albaridbank.ma/themes/baridbank/logo.png", use_column_widt
 st.title("Prévision des retraits GAB avec LSTM")
 st.write("Application basée sur le modèle LSTM pour prédire les retraits hebdomadaires des GAB.")
 
+# Sidebar avec logo et filtres
+# =========================
+st.sidebar.image(
+    "https://www.albaridbank.ma/themes/baridbank/logo.png",
+    use_container_width=True
+)
+
 # =========================
 # Charger les données
 # =========================
