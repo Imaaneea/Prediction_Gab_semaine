@@ -34,20 +34,25 @@ df = load_data()
 # =========================
 st.sidebar.header("Filtres")
 
-region_list = df['region'].unique()
+# Filtre Région sans NaN
+region_list = sorted(df['region'].dropna().unique())
 selected_region = st.sidebar.selectbox("Région :", region_list)
 
-agence_list = df[df['region'] == selected_region]['agence'].unique()
+# Filtre Agence dépendant de la région, sans NaN
+agence_list = sorted(df[df['region'] == selected_region]['agence'].dropna().unique())
 selected_agence = st.sidebar.selectbox("Agence :", agence_list)
 
-gab_list = df[(df['region'] == selected_region) & (df['agence'] == selected_agence)]['lib_gab'].unique()
+# Filtre GAB dépendant de l'agence, sans NaN
+gab_list = sorted(df[(df['region'] == selected_region) & (df['agence'] == selected_agence)]['lib_gab'].dropna().unique())
 selected_gab = st.sidebar.selectbox("GAB :", gab_list)
 
+# Filtre période
 date_min = df['ds'].min()
 date_max = df['ds'].max()
 start_date = st.sidebar.date_input("Date début :", date_min)
 end_date = st.sidebar.date_input("Date fin :", date_max)
 
+# Filtrer le DataFrame
 df_filtered = df[
     (df['region'] == selected_region) &
     (df['agence'] == selected_agence) &
