@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 import pickle
 from tensorflow.keras.models import load_model
 from tensorflow.keras import losses
@@ -25,67 +26,54 @@ def load_data():
 df = load_data()
 
 # =========================
-# Barre latérale : filtres
+# Sélection du GAB et période
 # =========================
-st.sidebar.header("Filtres")
-start_date = st.sidebar.date_input("Date de début", df['ds'].min())
-end_date = st.sidebar.date_input("Date de fin", df['ds'].max())
+gab_list = df['num_gab'].unique()
+selected_gab = st.selectbox("Sélectionnez un GAB :", gab_list)
 
-df_filtered = df[(df['ds'] >= pd.to_datetime(start_date)) & (df['ds'] <= pd.to_datetime(end_date))]
+st.subheader("Filtrer par période")
+start_date = st.date_input("Date de début", df['ds'].min())
+end_date = st.date_input("Date de fin", df['ds'].max())
 
-regions = ["Toutes"] + list(df_filtered['region'].unique())
-selected_region = st.sidebar.selectbox("Sélectionnez une région :", regions)
-
-if selected_region != "Toutes":
-    df_region = df_filtered[df_filtered['region'] == selected_region]
-else:
-    df_region = df_filtered.copy()
-
-agences = ["Toutes"] + list(df_region['agence'].unique())
-selected_agence = st.sidebar.selectbox("Sélectionnez une agence :", agences)
-
-if selected_agence != "Toutes":
-    df_agence = df_region[df_region['agence'] == selected_agence]
-else:
-    df_agence = df_region.copy()
-
-gab_list = df_agence['num_gab'].unique()
-selected_gab = st.sidebar.selectbox("Sélectionnez un GAB :", gab_list)
-
-df_gab = df_agence[df_agence['num_gab'] == selected_gab].sort_values('ds')
+# Filtrer le GAB sélectionné par période
+df_gab = df[df['num_gab'] == selected_gab].sort_values('ds')
+df_gab_period = df_gab[(df_gab['ds'] >= pd.to_datetime(start_date)) & (df_gab['ds'] <= pd.to_datetime(end_date))]
 
 # =========================
-# Tableau de bord indicateurs
+# Tableau de bord des indicateurs
 # =========================
 st.subheader("Tableau de bord")
 
-total_montant = df_gab['total_montant'].sum()
-total_nombre = df_gab['total_nombre'].sum()
-
-st.metric("Montant total retiré", f"{total_montant:,.0f} MAD")
-st.metric("Nombre total de retraits", f"{total_nombre:,.0f}")
+total_amount = df_gab_period['y'].sum()
+total_retraits = df_gab_period['y'].count()
+st.metric("Montant total retiré (MAD)", f"{total_amount:,.0f}")
+st.metric("Nombre total de retraits", f"{total_retraits:,.0f}")
 
 # Nombre de GAB par région
-gabs_region = df_region.groupby('region')['num_gab'].nunique().sort_values(ascending=False)
-st.write("**Nombre de GAB par région**")
-st.bar_chart(gabs_region)
-
-# Top GAB par montant
-top_gabs = df_agence.groupby('num_gab')['total_montant'].sum().sort_values(ascending=False).head(10)
-st.write("**Top 10 des GAB par montant**")
-st.bar_chart(top_gabs)
+st.write("Nombre de GAB par région :")
+st.dataframe(df.groupby('region')['num_gab'].nunique().sort_values(ascending=False))
 
 # =========================
-# Historique des retraits
+# Top 10 des GAB par montant
 # =========================
-st.subheader("Historique des retraits")
-fig, ax = plt.subplots(figsize=(10,4))
-ax.plot(df_gab['ds'], df_gab['y'], marker='o', label='Réel', color='blue')
-ax.set_xlabel("Semaine")
-ax.set_ylabel("Montant retrait")
-ax.grid(True, linestyle='--', alpha=0.6)
-ax.legend()
-st.pyplot(fig)
+st.subheader("Top 10 des GAB par montant total retiré")
+top10_gab = df.groupby('num_gab').agg({'y':'sum','lib_gab':'first'}).sort_values('y', ascending=False).head(10)
+st.dataframe(top10_gab[['lib_gab','y']])
+
+# =========================
+# Historique et évolution hebdomadaire
+# =========================
+st.subheader(f"Évolution hebdomadaire des retraits pour le GAB {selected_gab}")
+if not df_gab_period.empty:
+    df_weekly = df_gab_period.groupby('week')['y'].sum().reset_index()
+    fig1, ax1 = plt.subplots(figsize=(10,4))
+    ax1.plot(df_weekly['week'], df_weekly['y'], marker='o')
+    ax1.set_xlabel("Semaine")
+    ax1.set_ylabel("Montant retiré")
+    ax1.grid(True)
+    st.pyplot(fig1)
+else:
+    st.write("Aucune donnée pour la période sélectionnée.")
 
 # =========================
 # Charger modèle et scaler
@@ -102,6 +90,8 @@ model, scaler = load_lstm_model()
 # =========================
 # Prévisions LSTM
 # =========================
+st.subheader("Prévision des retraits (prochaines semaines)")
+
 n_steps = 4
 forecast_periods = 12
 
@@ -120,16 +110,12 @@ preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1
 future_dates = pd.date_range(start=df_gab['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
 df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
 
-# =========================
-# Afficher la prévision
-# =========================
-st.subheader("Prévision des retraits (prochaines semaines)")
 fig2, ax2 = plt.subplots(figsize=(10,4))
-ax2.plot(df_gab['ds'], df_gab['y'], marker='o', label='Historique', color='blue')
-ax2.plot(df_future['ds'], df_future['yhat'], marker='x', label='Prévision LSTM', color='orange')
+ax2.plot(df_gab['ds'], df_gab['y'], marker='o', label='Historique')
+ax2.plot(df_future['ds'], df_future['yhat'], marker='x', label='Prévision LSTM')
 ax2.set_xlabel("Semaine")
 ax2.set_ylabel("Montant retrait")
-ax2.grid(True, linestyle='--', alpha=0.6)
+ax2.grid(True)
 ax2.legend()
 st.pyplot(fig2)
 
