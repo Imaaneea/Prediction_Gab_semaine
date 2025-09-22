@@ -6,3 +6,5 @@ tensorflow
 scikit-learn
 seaborn
 plotly
+pystan==3.9.1.1
+prophet==1.1.4
