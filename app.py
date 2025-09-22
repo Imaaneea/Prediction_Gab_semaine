@@ -157,3 +157,52 @@ if len(y_values) >= n_steps:
     )
 else:
     st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
+
+# =========================
+# Prévisions Prophet par cluster
+# =========================
+st.subheader("Prévision des retraits par cluster (Prophet)")
+
+# Charger les modèles Prophet sauvegardés
+@st.cache_resource
+def load_prophet_models():
+    model0 = joblib.load("prophet_cluster_0.pkl")
+    model1 = joblib.load("prophet_cluster_1.pkl")
+    model2 = joblib.load("prophet_cluster_2.pkl")
+    return {0: model0, 1: model1, 2: model2}
+
+prophet_models = load_prophet_models()
+
+forecast_periods = 12  # semaines futures
+
+# Trouver le cluster du GAB sélectionné
+gab_info = df[df['lib_gab'] == selected_gab].iloc[0]
+gab_cluster = gab_info['cluster']
+
+# Faire la prévision avec le modèle correspondant
+model = prophet_models[gab_cluster]
+future = model.make_future_dataframe(periods=forecast_periods, freq='W-MON')
+forecast = model.predict(future)
+
+# Affichage graphique
+fig_prophet = px.line(
+    forecast,
+    x='ds',
+    y='yhat',
+    labels={'yhat': 'Montant prévision (MAD)', 'ds': 'Semaine'},
+    title=f"Prévision Prophet - Cluster {gab_cluster}"
+)
+st.plotly_chart(fig_prophet, use_container_width=True)
+
+# Prévisions futures seulement
+df_prophet_future = forecast[forecast['ds'] > df['ds'].max()][['ds', 'yhat']]
+df_prophet_future['yhat'] = df_prophet_future['yhat'].apply(format_montant_k)
+
+# Bouton téléchargement
+st.download_button(
+    label="Télécharger prévisions Prophet CSV",
+    data=df_prophet_future.to_csv(index=False),
+    file_name=f"forecast_prophet_gab_{selected_gab}.csv",
+    mime='text/csv'
+)
+
