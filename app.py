@@ -65,6 +65,15 @@ df_filtered = df[
 ]
 
 # =========================
+# Fonction de formatage FR
+# =========================
+def format_montant(val):
+    return f"{val:,.2f}".replace(",", " ").replace(".", ",")
+
+def format_nombre(val):
+    return f"{val:,.0f}".replace(",", " ")
+
+# =========================
 # KPIs
 # =========================
 total_montant = df_filtered['total_montant'].sum()
@@ -72,15 +81,18 @@ total_nombre = df_filtered['total_nombre'].sum()
 total_gabs_region = df[df['region'] == selected_region]['num_gab'].nunique()
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Montant total retiré", f"{total_montant:,.2f} MAD")
-col2.metric("Nombre total de retraits", f"{total_nombre:,.0f}")
-col3.metric(f"Nombre de GAB ({selected_region})", total_gabs_region)
+col1.metric("Montant total retiré", f"{format_montant(total_montant)} MAD")
+col2.metric("Nombre total de retraits", format_nombre(total_nombre))
+col3.metric(f"Nombre de GAB ({selected_region})", format_nombre(total_gabs_region))
 
 # =========================
 # Top 10 des GAB par montant
 # =========================
 st.subheader("Top 10 des GAB par montant")
 top10 = df[df['region'] == selected_region].groupby('lib_gab')['total_montant'].sum().sort_values(ascending=False).head(10).reset_index()
+
+# Appliquer formatage sur affichage
+top10['total_montant'] = top10['total_montant'].apply(format_montant)
 st.dataframe(top10)
 
 # =========================
@@ -124,16 +136,23 @@ if len(y_values) >= n_steps:
     future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
     df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
 
+    # Formatage pour affichage
+    df_future['yhat'] = df_future['yhat'].apply(format_montant)
+
     st.subheader("Prévision des retraits (prochaines semaines)")
-    fig2 = px.line(df_future, x='ds', y='yhat', markers=True)
-    fig2.add_scatter(x=df_filtered['ds'], y=df_filtered['y'], mode='lines+markers', name='Historique')
+    fig2 = px.line(
+        pd.concat([
+            pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['y'], 'type': 'Historique'}),
+            pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
+        ]),
+        x="ds", y="valeur", color="type", markers=True
+    )
     fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait")
     st.plotly_chart(fig2, use_container_width=True)
 
     # Télécharger les résultats
     st.subheader("Télécharger les prévisions")
-    df_download = df_future.copy()
-    df_download['lib_gab'] = selected_gab
+    df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
     csv = df_download.to_csv(index=False)
     st.download_button(
         label="Télécharger CSV",
