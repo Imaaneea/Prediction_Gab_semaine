@@ -34,25 +34,20 @@ df = load_data()
 # =========================
 st.sidebar.header("Filtres")
 
-# Filtre Région
 region_list = df['region'].unique()
 selected_region = st.sidebar.selectbox("Région :", region_list)
 
-# Filtre Agence dépendant de la région
 agence_list = df[df['region'] == selected_region]['agence'].unique()
 selected_agence = st.sidebar.selectbox("Agence :", agence_list)
 
-# Filtre GAB dépendant de l'agence
 gab_list = df[(df['region'] == selected_region) & (df['agence'] == selected_agence)]['lib_gab'].unique()
 selected_gab = st.sidebar.selectbox("GAB :", gab_list)
 
-# Filtre période
 date_min = df['ds'].min()
 date_max = df['ds'].max()
 start_date = st.sidebar.date_input("Date début :", date_min)
 end_date = st.sidebar.date_input("Date fin :", date_max)
 
-# Filtrer le DataFrame
 df_filtered = df[
     (df['region'] == selected_region) &
     (df['agence'] == selected_agence) &
@@ -62,10 +57,10 @@ df_filtered = df[
 ]
 
 # =========================
-# Fonction de formatage FR
+# Fonction de formatage K MAD
 # =========================
-def format_montant(val):
-    return f"{val:,.0f} MAD".replace(",", " ")
+def format_montant_k(val):
+    return f"{val/1_000:,.0f} K MAD".replace(",", " ")
 
 def format_nombre(val):
     return f"{val:,.0f}".replace(",", " ")
@@ -78,7 +73,7 @@ total_nombre = df_filtered['total_nombre'].sum()
 total_gabs_region = df[df['region'] == selected_region]['num_gab'].nunique()
 
 col1, col2, col3 = st.columns(3)
-col1.metric("Montant total retiré", format_montant(total_montant))
+col1.metric("Montant total retiré", format_montant_k(total_montant))
 col2.metric("Nombre total de retraits", format_nombre(total_nombre))
 col3.metric(f"Nombre de GAB ({selected_region})", format_nombre(total_gabs_region))
 
@@ -87,7 +82,7 @@ col3.metric(f"Nombre de GAB ({selected_region})", format_nombre(total_gabs_regio
 # =========================
 st.subheader("Top 10 des GAB par montant")
 top10 = df[df['region'] == selected_region].groupby('lib_gab')['total_montant'].sum().sort_values(ascending=False).head(10).reset_index()
-top10['total_montant'] = top10['total_montant'].apply(format_montant)
+top10['total_montant'] = top10['total_montant'].apply(format_montant_k)
 st.dataframe(top10)
 
 # =========================
@@ -96,7 +91,7 @@ st.dataframe(top10)
 st.subheader(f"Évolution hebdomadaire des retraits pour {selected_gab}")
 df_evo = df_filtered.groupby('ds')['y'].sum().reset_index()
 fig = px.line(df_evo, x='ds', y='y', markers=True)
-fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
+fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
 st.plotly_chart(fig, use_container_width=True)
 
 # =========================
@@ -104,7 +99,7 @@ st.plotly_chart(fig, use_container_width=True)
 # =========================
 @st.cache_resource
 def load_lstm_model():
-    model = load_model("lstm_gab_model.h5", compile=False)  # modèle sans compilation
+    model = load_model("lstm_gab_model.h5", compile=False)
     scaler = joblib.load("scaler.pkl")
     return model, scaler
 
@@ -113,7 +108,7 @@ model, scaler = load_lstm_model()
 # =========================
 # Prévisions LSTM
 # =========================
-n_steps = 4  # nombre de semaines pour l'entrée du modèle
+n_steps = 4
 forecast_periods = 12
 
 y_values = df_filtered['y'].values.reshape(-1,1)
@@ -131,8 +126,8 @@ if len(y_values) >= n_steps:
     future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
     df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
 
-    # Formatage pour affichage
-    df_future['yhat'] = df_future['yhat'].apply(format_montant)
+    # Formatage K MAD pour affichage
+    df_future['yhat'] = df_future['yhat'].apply(format_montant_k)
 
     st.subheader("Prévision des retraits (prochaines semaines)")
     fig2 = px.line(
@@ -142,7 +137,7 @@ if len(y_values) >= n_steps:
         ]),
         x="ds", y="valeur", color="type", markers=True
     )
-    fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
+    fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
     st.plotly_chart(fig2, use_container_width=True)
 
     # Télécharger les résultats
