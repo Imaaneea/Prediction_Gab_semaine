@@ -7,9 +7,11 @@ import seaborn as sns
 import pickle
 from tensorflow.keras.models import load_model
 from tensorflow.keras import losses
+import plotly.express as px
+import plotly.graph_objects as go
 
 # =========================
-# Titre de l'application
+# Configuration de la page
 # =========================
 st.set_page_config(page_title="Prévision retraits GAB", layout="wide")
 st.title("Prévision des retraits GAB avec LSTM")
@@ -31,7 +33,9 @@ def load_data():
 
 df = load_data()
 
+# =========================
 # Filtres
+# =========================
 regions = ["Toutes"] + list(df['region'].unique())
 selected_region = st.sidebar.selectbox("Sélectionnez une région :", regions)
 
@@ -45,7 +49,7 @@ selected_agence = st.sidebar.selectbox("Sélectionnez une agence :", agences)
 gabs = ["Tous"] + list(df['lib_gab'].unique())
 selected_gab = st.sidebar.selectbox("Sélectionnez un GAB :", gabs)
 
-# Filtre période
+# Période
 date_min = df['ds'].min()
 date_max = df['ds'].max()
 start_date = st.sidebar.date_input("Date début :", date_min, min_value=date_min, max_value=date_max)
@@ -64,13 +68,16 @@ if selected_gab != "Tous":
 # Tableau de bord
 # =========================
 st.subheader("Tableau de bord")
-col1, col2, col3 = st.columns(3)
+
+col1, col2, col3, col4 = st.columns(4)
 with col1:
     st.metric("Montant total retiré", f"{df_filtered['total_montant'].sum():,.0f} MAD")
 with col2:
     st.metric("Nombre total de retraits", f"{df_filtered['total_nombre'].sum():,.0f}")
 with col3:
-    st.metric("Nombre de GAB (région)", df_filtered['num_gab'].nunique())
+    st.metric("Nombre de GAB", df_filtered['num_gab'].nunique())
+with col4:
+    st.metric("Nombre d'agences", df_filtered['agence'].nunique())
 
 # Top 10 GAB par montant
 st.subheader("Top 10 des GAB par montant")
@@ -78,23 +85,35 @@ top_gabs = df_filtered.groupby(['lib_gab'])['total_montant'].sum().sort_values(a
 st.dataframe(top_gabs.style.format({"total_montant": "{:,.2f}"}))
 
 # =========================
-# Évolution hebdomadaire
+# Évolution historique
 # =========================
-st.subheader("Évolution hebdomadaire des retraits")
+st.subheader("Évolution des retraits")
+
 if selected_gab != "Tous":
     df_gab = df_filtered[df_filtered['lib_gab']==selected_gab].sort_values('ds')
-    fig, ax = plt.subplots(figsize=(10,4))
-    ax.plot(df_gab['ds'], df_gab['total_montant'], marker='o', label='Montant retiré')
-    ax.set_xlabel("Semaine")
-    ax.set_ylabel("Montant retrait")
-    ax.grid(True)
-    ax.legend()
-    st.pyplot(fig)
 else:
-    st.info("Sélectionnez un GAB pour afficher l'évolution hebdomadaire.")
+    df_gab = df_filtered.groupby('ds')['total_montant'].sum().reset_index()
+
+# Graphique Plotly pour l'historique
+fig_hist = px.line(df_gab, x='ds', y='total_montant', markers=True, title="Historique des retraits")
+fig_hist.update_layout(xaxis_title="Semaine", yaxis_title="Montant retiré")
+st.plotly_chart(fig_hist, use_container_width=True)
 
 # =========================
-# Charger modèle et scaler
+# Distribution par région et agence
+# =========================
+st.subheader("Montant total par région")
+region_chart = df_filtered.groupby('region')['total_montant'].sum().reset_index()
+fig_region = px.bar(region_chart, x='region', y='total_montant', text='total_montant', title="Montant total par région")
+st.plotly_chart(fig_region, use_container_width=True)
+
+st.subheader("Montant total par agence")
+agence_chart = df_filtered.groupby('agence')['total_montant'].sum().reset_index()
+fig_agence = px.bar(agence_chart, x='agence', y='total_montant', text='total_montant', title="Montant total par agence")
+st.plotly_chart(fig_agence, use_container_width=True)
+
+# =========================
+# Charger modèle et scaler pour prévision
 # =========================
 @st.cache_resource
 def load_lstm_model():
@@ -114,7 +133,7 @@ def load_lstm_model():
 model, scaler = load_lstm_model()
 
 # =========================
-# Prévisions LSTM pour le GAB sélectionné
+# Prévisions LSTM
 # =========================
 if selected_gab != "Tous" and model is not None and scaler is not None:
     n_steps = 4
@@ -132,14 +151,10 @@ if selected_gab != "Tous" and model is not None and scaler is not None:
     df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
 
     st.subheader("Prévision des retraits (prochaines semaines)")
-    fig2, ax2 = plt.subplots(figsize=(10,4))
-    ax2.plot(df_gab['ds'], df_gab['total_montant'], marker='o', label='Historique')
-    ax2.plot(df_future['ds'], df_future['yhat'], marker='x', label='Prévision LSTM')
-    ax2.set_xlabel("Semaine")
-    ax2.set_ylabel("Montant retrait")
-    ax2.grid(True)
-    ax2.legend()
-    st.pyplot(fig2)
+    fig_pred = px.line(df_future, x='ds', y='yhat', markers=True, title=f"Prévisions LSTM pour {selected_gab}")
+    fig_pred.add_trace(go.Scatter(x=df_gab['ds'], y=df_gab['total_montant'], mode='lines+markers', name='Historique'))
+    fig_pred.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait")
+    st.plotly_chart(fig_pred, use_container_width=True)
 
     # Télécharger les résultats
     st.subheader("Télécharger les prévisions")
