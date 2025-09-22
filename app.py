@@ -1,4 +1,4 @@
-# app.py
+ # app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -117,17 +117,9 @@ st.plotly_chart(fig_agence, use_container_width=True)
 # =========================
 @st.cache_resource
 def load_lstm_model():
-    try:
-        model = load_model("lstm_gab_model.h5", custom_objects={'mse': losses.MeanSquaredError})
-    except Exception as e:
-        st.error(f"Erreur chargement modèle LSTM : {e}")
-        model = None
-    try:
-        with open("scaler.pkl", "rb") as f:
-            scaler = pickle.load(f)
-    except Exception as e:
-        st.error(f"Erreur chargement scaler : {e}")
-        scaler = None
+    model = load_model("lstm_gab_model.h5", compile=False)  # compile=False
+    with open("scaler.pkl", "rb") as f:
+        scaler = pickle.load(f)
     return model, scaler
 
 model, scaler = load_lstm_model()
