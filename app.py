@@ -3,16 +3,22 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 import pickle
 from tensorflow.keras.models import load_model
 from tensorflow.keras import losses
+
+# =========================
+# Config page
+# =========================
+st.set_page_config(page_title="Prévision retraits GAB", layout="wide")
 
 # =========================
 # Logo et titre
 # =========================
 st.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=200)
 st.title("Prévision des retraits GAB avec LSTM")
-st.write("Application basée sur le modèle LSTM pour prédire les retraits hebdomadaires des GAB.")
+st.markdown("Application pour prédire les retraits hebdomadaires des GAB et visualiser les indicateurs par région et agence.")
 
 # =========================
 # Charger les données
@@ -25,9 +31,10 @@ def load_data():
 df = load_data()
 
 # =========================
-# Tableau de bord des indicateurs
+# Tableau de bord global
 # =========================
-st.subheader("Tableau de bord des indicateurs globaux")
+st.subheader("Tableau de bord global")
+
 total_retraits = df['total_montant'].sum()
 total_transactions = df['total_nombre'].sum()
 avg_retrait_par_gab = df.groupby('num_gab')['total_montant'].mean().mean()
@@ -39,37 +46,51 @@ col2.metric("Total des transactions", f"{total_transactions:,}")
 col3.metric("Moyenne retrait par GAB (MAD)", f"{avg_retrait_par_gab:,.2f}")
 
 st.subheader("Top 5 GAB par montant total")
-st.table(top_gabs.reset_index().rename(columns={'num_gab':'GAB', 'total_montant':'Montant Total'}))
+st.bar_chart(top_gabs)
 
 # =========================
-# Graphique évolution hebdomadaire
+# Indicateurs par région et agence
+# =========================
+st.subheader("Indicateurs par région et agence")
+region_summary = df.groupby('region')['total_montant'].sum().sort_values(ascending=False)
+agence_summary = df.groupby('agence')['total_montant'].sum().sort_values(ascending=False)
+
+col1, col2 = st.columns(2)
+with col1:
+    st.markdown("### Montant total par région")
+    st.bar_chart(region_summary)
+with col2:
+    st.markdown("### Montant total par agence")
+    st.bar_chart(agence_summary)
+
+# =========================
+# Evolution hebdomadaire
 # =========================
 st.subheader("Evolution hebdomadaire des retraits")
 df_weekly = df.groupby('ds')['total_montant'].sum().reset_index()
 fig, ax = plt.subplots(figsize=(10,4))
-ax.plot(df_weekly['ds'], df_weekly['total_montant'], marker='o')
+sns.lineplot(data=df_weekly, x='ds', y='total_montant', marker='o', ax=ax)
 ax.set_xlabel("Semaine")
 ax.set_ylabel("Total des retraits (MAD)")
 ax.grid(True)
 st.pyplot(fig)
 
 # =========================
-# Choix du GAB pour prévision
+# Choix du GAB
 # =========================
 gab_list = df['num_gab'].unique()
 selected_gab = st.selectbox("Sélectionnez un GAB :", gab_list)
 df_gab = df[df['num_gab'] == selected_gab].sort_values('ds')
 
 # =========================
-# Historique des retraits du GAB
+# Historique et prévision du GAB
 # =========================
-st.subheader(f"Historique des retraits pour le GAB {selected_gab}")
+st.subheader(f"Historique et prévisions pour le GAB {selected_gab}")
 fig2, ax2 = plt.subplots(figsize=(10,4))
-ax2.plot(df_gab['ds'], df_gab['y'], marker='o', label='Réel')
+sns.lineplot(data=df_gab, x='ds', y='y', marker='o', ax=ax2, label='Historique')
 ax2.set_xlabel("Semaine")
 ax2.set_ylabel("Montant retrait")
 ax2.grid(True)
-ax2.legend()
 st.pyplot(fig2)
 
 # =========================
@@ -91,7 +112,6 @@ n_steps = 4
 forecast_periods = 12
 y_values = df_gab['y'].values.reshape(-1,1)
 y_scaled = scaler.transform(y_values)
-
 last_seq = y_scaled[-n_steps:].reshape(1,n_steps,1)
 preds_future_scaled = []
 
@@ -104,13 +124,9 @@ preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1
 future_dates = pd.date_range(start=df_gab['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
 df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
 
-# =========================
-# Afficher la prévision
-# =========================
-st.subheader(f"Prévision des retraits pour le GAB {selected_gab} (prochaines semaines)")
 fig3, ax3 = plt.subplots(figsize=(10,4))
-ax3.plot(df_gab['ds'], df_gab['y'], marker='o', label='Historique')
-ax3.plot(df_future['ds'], df_future['yhat'], marker='x', label='Prévision LSTM')
+sns.lineplot(x=df_gab['ds'], y=df_gab['y'], marker='o', label='Historique', ax=ax3)
+sns.lineplot(x=df_future['ds'], y=df_future['yhat'], marker='x', label='Prévision', ax=ax3)
 ax3.set_xlabel("Semaine")
 ax3.set_ylabel("Montant retrait")
 ax3.grid(True)
