@@ -5,13 +5,14 @@ import numpy as np
 import plotly.express as px
 import joblib
 from tensorflow.keras.models import load_model
+import os
 
 # =========================
 # Titre et logo
 # =========================
 st.set_page_config(page_title="Prévision des retraits GAB", layout="wide")
 st.title("Prévision des retraits GAB avec LSTM")
-st.write("Application basée sur le modèle LSTM pour prédire les retraits hebdomadaires des GAB.")
+st.write("Application basée sur les modèles LSTM pour prédire les retraits hebdomadaires des GAB.")
 
 # Sidebar avec logo et filtres
 st.sidebar.image(
@@ -57,7 +58,7 @@ df_filtered = df[
 ]
 
 # =========================
-# Fonction de formatage K MAD
+# Fonction de formatage
 # =========================
 def format_montant_k(val):
     return f"{val/1_000:,.0f} K MAD".replace(",", " ")
@@ -95,65 +96,67 @@ fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
 st.plotly_chart(fig, use_container_width=True)
 
 # =========================
-# Prévisions LSTM par GAB
+# Charger modèle et scaler par GAB
 # =========================
-n_steps = 26
-forecast_periods = 12
-
-df_filtered = df_filtered.sort_values("ds")
-y_values = df_filtered['y'].values.reshape(-1,1)
-
-# Nom des fichiers modèles/scalers selon le GAB sélectionné
-gab_num = df_filtered['num_gab'].iloc[0]
-model_file = f"lstm_model_{gab_num}.h5"
-scaler_file = f"scaler_{gab_num}.pkl"
-
-# Charger modèle et scaler spécifique
 @st.cache_resource
 def load_lstm_gab_model(model_file, scaler_file):
     model = load_model(model_file, compile=False)
     scaler = joblib.load(scaler_file)
     return model, scaler
 
-model, scaler = load_lstm_gab_model(model_file, scaler_file)
+# =========================
+# Prévisions LSTM
+# =========================
+n_steps = 26
+forecast_periods = 12
 
-# Prévision si assez de données
-if len(y_values) >= n_steps:
-    y_scaled = scaler.transform(y_values)
-    last_seq = y_scaled[-n_steps:].reshape(1,n_steps,1)
-    preds_future_scaled = []
+gab_num = df_filtered['num_gab'].iloc[0]
+model_file = f"lstm_model_{gab_num}.h5"
+scaler_file = f"scaler_{gab_num}.pkl"
 
-    for _ in range(forecast_periods):
-        yhat_scaled = model.predict(last_seq, verbose=0)[0,0]
-        preds_future_scaled.append(yhat_scaled)
-        last_seq = np.append(last_seq[:,1:,:], [[[yhat_scaled]]], axis=1)
+if os.path.exists(model_file) and os.path.exists(scaler_file):
+    model, scaler = load_lstm_gab_model(model_file, scaler_file)
+    
+    df_filtered = df_filtered.sort_values("ds")
+    y_values = df_filtered['y'].values.reshape(-1,1)
+    
+    if len(y_values) >= n_steps:
+        y_scaled = scaler.transform(y_values)
+        last_seq = y_scaled[-n_steps:].reshape(1,n_steps,1)
+        preds_future_scaled = []
 
-    preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
-    future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1),
-                                 periods=forecast_periods, freq='W-MON')
-    df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
+        for _ in range(forecast_periods):
+            yhat_scaled = model.predict(last_seq, verbose=0)[0,0]
+            preds_future_scaled.append(yhat_scaled)
+            last_seq = np.append(last_seq[:,1:,:], [[[yhat_scaled]]], axis=1)
 
-    df_future['yhat'] = df_future['yhat'].apply(format_montant_k)
+        preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
+        future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
+        df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
 
-    st.subheader("Prévision des retraits (prochaines semaines)")
-    fig2 = px.line(
-        pd.concat([
-            pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['y'], 'type': 'Historique'}),
-            pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
-        ]),
-        x="ds", y="valeur", color="type", markers=True
-    )
-    fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
-    st.plotly_chart(fig2, use_container_width=True)
+        df_future['yhat'] = df_future['yhat'].apply(format_montant_k)
 
-    st.subheader("Télécharger les prévisions")
-    df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
-    csv = df_download.to_csv(index=False)
-    st.download_button(
-        label="Télécharger CSV",
-        data=csv,
-        file_name=f"forecast_gab_{selected_gab}.csv",
-        mime='text/csv'
-    )
+        st.subheader("Prévision des retraits (prochaines semaines)")
+        fig2 = px.line(
+            pd.concat([
+                pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['y'], 'type': 'Historique'}),
+                pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
+            ]),
+            x="ds", y="valeur", color="type", markers=True
+        )
+        fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
+        st.plotly_chart(fig2, use_container_width=True)
+
+        st.subheader("Télécharger les prévisions")
+        df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
+        csv = df_download.to_csv(index=False)
+        st.download_button(
+            label="Télécharger CSV",
+            data=csv,
+            file_name=f"forecast_gab_{selected_gab}.csv",
+            mime='text/csv'
+        )
+    else:
+        st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
 else:
-    st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
+    st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Veuillez vérifier que les fichiers {model_file} et {scaler_file} sont présents.")
