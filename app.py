@@ -26,8 +26,8 @@ st.sidebar.image(
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv")
-    # créer une colonne 'ds' comme lundi de la semaine
-    df['ds'] = pd.to_datetime(df['year'].astype(str) + '-W' + df['week'].astype(str) + '-1', format='%Y-W%W-%w')
+    # Créer 'ds' en utilisant fromisocalendar (ISO year, week, day)
+    df['ds'] = df.apply(lambda row: pd.Timestamp.fromisocalendar(int(row['year']), int(row['week']), 1), axis=1)
     return df
 
 df = load_data()
