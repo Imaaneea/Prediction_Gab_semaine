@@ -25,25 +25,7 @@ st.sidebar.image(
 # =========================
 @st.cache_data
 def load_data():
-    df = pd.read_csv("df_weekly_clean.csv")
-
-    # Nettoyer la colonne week : s'assurer que c'est un entier entre 1 et 52
-    df['week'] = pd.to_numeric(df['week'], errors='coerce').fillna(1).astype(int)
-    df['week'] = df['week'].apply(lambda x: x if 1 <= x <= 52 else 1)
-
-    # Créer colonne 'ds' en utilisant la semaine ISO, en prenant le lundi
-    def week_to_date(row):
-        try:
-            return pd.Timestamp.fromisocalendar(int(row['year']), int(row['week']), 1)
-        except:
-            # Si erreur, retourner le premier janvier de l'année
-            return pd.Timestamp(f"{int(row['year'])}-01-01")
-    
-    df['ds'] = df.apply(week_to_date, axis=1)
-
-    # Variable cible pour LSTM
-    df['y'] = df['total_montant']
-
+    df = pd.read_csv("df_weekly_clean.csv", parse_dates=['ds']) 
     return df
 
 df = load_data()
