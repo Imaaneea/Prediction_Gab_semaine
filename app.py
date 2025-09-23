@@ -29,12 +29,13 @@ region_selected = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.to
 agences = df[df["region"] == region_selected]["agence"].dropna().unique() if region_selected != "Toutes" else df["agence"].dropna().unique()
 agence_selected = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()))
 
-gabs = df[df["agence"] == agence_selected]["num_gab"].unique() if agence_selected != "Toutes" else df["num_gab"].unique()
-gab_selected = st.sidebar.selectbox("GAB", ["Tous"] + sorted(map(str, gabs.tolist())))
+gabs = df[df["agence"] == agence_selected]["lib_gab"].dropna().unique() if agence_selected != "Toutes" else df["lib_gab"].dropna().unique()
+gab_selected = st.sidebar.selectbox("GAB", ["Tous"] + sorted(gabs.tolist()))
 
 date_min = df["ds"].min()
 date_max = df["ds"].max()
-date_debut, date_fin = st.sidebar.date_input("Période", [date_min, date_max])
+date_debut = st.sidebar.date_input("Date de début", date_min)
+date_fin = st.sidebar.date_input("Date de fin", date_max)
 
 # ==============================
 # Filtrage
@@ -48,7 +49,7 @@ if agence_selected != "Toutes":
     df_filtered = df_filtered[df_filtered["agence"] == agence_selected]
 
 if gab_selected != "Tous":
-    df_filtered = df_filtered[df_filtered["num_gab"] == int(gab_selected)]
+    df_filtered = df_filtered[df_filtered["lib_gab"] == gab_selected]
 
 df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) & 
                           (df_filtered["ds"] <= pd.to_datetime(date_fin))]
@@ -74,12 +75,12 @@ if not df_filtered.empty:
     # Graphiques
     # ==============================
     st.subheader("📈 Évolution hebdomadaire des retraits")
-    fig1 = px.line(df_filtered, x="ds", y="total_montant", color="num_gab",
+    fig1 = px.line(df_filtered, x="ds", y="total_montant", color="lib_gab",
                    title="Évolution hebdomadaire des retraits")
     st.plotly_chart(fig1, use_container_width=True)
 
     st.subheader("📊 Évolution hebdomadaire du nombre d’opérations")
-    fig2 = px.line(df_filtered, x="ds", y="total_nombre", color="num_gab",
+    fig2 = px.line(df_filtered, x="ds", y="total_nombre", color="lib_gab",
                    title="Évolution hebdomadaire du nombre d’opérations")
     st.plotly_chart(fig2, use_container_width=True)
 
@@ -89,7 +90,7 @@ if not df_filtered.empty:
     st.subheader("🤖 Prévision LSTM pour un GAB")
 
     if gab_selected != "Tous":
-        gab_num = int(gab_selected)
+        gab_num = df[df["lib_gab"] == gab_selected]["num_gab"].iloc[0]  # retrouver le numéro pour charger le modèle
         model_path = f"lstm_gab_{gab_num}.h5"
         scaler_path = f"scaler_gab_{gab_num}.save"
 
@@ -112,7 +113,7 @@ if not df_filtered.empty:
                 next_date = data_gab["ds"].max() + timedelta(weeks=1)
                 forecast_df = pd.DataFrame({"ds": [next_date], "Prévision retrait": [y_pred[0, 0]]})
 
-                fig3 = px.line(data_gab, x="ds", y="total_montant", title=f"Prévision des retraits - GAB {gab_num}")
+                fig3 = px.line(data_gab, x="ds", y="total_montant", title=f"Prévision des retraits - {gab_selected}")
                 fig3.add_scatter(x=forecast_df["ds"], y=forecast_df["Prévision retrait"], mode="markers+lines", name="Prévision")
                 st.plotly_chart(fig3, use_container_width=True)
 
