@@ -25,7 +25,7 @@ st.sidebar.image(
 # =========================
 @st.cache_data
 def load_data():
-    df = pd.read_csv("df_weekly_clean.csv", parse_dates=['ds']) 
+    df = pd.read_csv("df_weekly_clean.csv", parse_dates=['ds'])
     return df
 
 df = load_data()
@@ -44,12 +44,17 @@ selected_agence = st.sidebar.selectbox("Agence :", agence_list)
 # Filtrer uniquement les GAB pour lesquels on a un modèle LSTM
 all_lstm_models = [f.split('_')[2].split('.')[0] for f in os.listdir('.') if f.startswith('lstm_gab') and f.endswith('.h5')]
 gab_list = sorted(
-    df[(df['region'] == selected_region) & 
+    df[(df['region'] == selected_region) &
        (df['agence'] == selected_agence) &
        (df['num_gab'].astype(str).isin(all_lstm_models))
       ]['lib_gab'].dropna().unique()
 )
-selected_gab = st.sidebar.selectbox("GAB (avec modèle LSTM) :", gab_list)
+
+if gab_list:
+    selected_gab = st.sidebar.selectbox("GAB (avec modèle LSTM) :", gab_list)
+else:
+    selected_gab = None
+    st.warning("Aucun GAB avec modèle LSTM disponible pour cette sélection.")
 
 # Dates
 date_min = df['ds'].min()
@@ -57,13 +62,18 @@ date_max = df['ds'].max()
 start_date = st.sidebar.date_input("Date début :", date_min)
 end_date = st.sidebar.date_input("Date fin :", date_max)
 
+# Filtrer les données
 df_filtered = df[
     (df['region'] == selected_region) &
-    (df['agence'] == selected_agence) &
-    (df['lib_gab'] == selected_gab) &
-    (df['ds'] >= pd.to_datetime(start_date)) &
-    (df['ds'] <= pd.to_datetime(end_date))
+    (df['agence'] == selected_agence)
 ]
+
+if selected_gab:
+    df_filtered = df_filtered[
+        (df_filtered['lib_gab'] == selected_gab) &
+        (df_filtered['ds'] >= pd.to_datetime(start_date)) &
+        (df_filtered['ds'] <= pd.to_datetime(end_date))
+    ]
 
 # =========================
 # Fonctions de formatage
@@ -77,8 +87,8 @@ def format_nombre(val):
 # =========================
 # KPIs
 # =========================
-total_montant = df_filtered['total_montant'].sum()
-total_nombre = df_filtered['total_nombre'].sum()
+total_montant = df_filtered['total_montant'].sum() if not df_filtered.empty else 0
+total_nombre = df_filtered['total_nombre'].sum() if not df_filtered.empty else 0
 total_gabs_region = df[df['region'] == selected_region]['num_gab'].nunique()
 
 col1, col2, col3 = st.columns(3)
@@ -97,11 +107,14 @@ st.dataframe(top10)
 # =========================
 # Evolution hebdomadaire
 # =========================
-st.subheader(f"Évolution hebdomadaire des retraits pour {selected_gab}")
-df_evo = df_filtered.groupby('ds')['total_montant'].sum().reset_index()
-fig = px.line(df_evo, x='ds', y='total_montant', markers=True)
-fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
-st.plotly_chart(fig, use_container_width=True)
+if not df_filtered.empty:
+    st.subheader(f"Évolution hebdomadaire des retraits pour {selected_gab}")
+    df_evo = df_filtered.groupby('ds')['total_montant'].sum().reset_index()
+    fig = px.line(df_evo, x='ds', y='total_montant', markers=True)
+    fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("Pas de données disponibles pour ce filtre.")
 
 # =========================
 # Charger modèle et scaler
@@ -115,52 +128,53 @@ def load_lstm_gab_model(model_file, scaler_file):
 # =========================
 # Prévisions LSTM
 # =========================
-n_steps = 52  # Fenêtre utilisée lors de l'entraînement
+n_steps = 52
 forecast_periods = 12
 
-gab_num = df_filtered['num_gab'].iloc[0]
-model_file = f"lstm_gab_{gab_num}.h5"
-scaler_file = f"scaler_gab_{gab_num}.save"
+if not df_filtered.empty and selected_gab:
+    gab_num = df_filtered['num_gab'].iloc[0]
+    model_file = f"lstm_gab_{gab_num}.h5"
+    scaler_file = f"scaler_gab_{gab_num}.save"
 
-if os.path.exists(model_file) and os.path.exists(scaler_file):
-    model, scaler = load_lstm_gab_model(model_file, scaler_file)
-    
-    df_filtered = df_filtered.sort_values("ds")
-    y_values = df_filtered['total_montant'].values.reshape(-1,1)
-    
-    if len(y_values) >= n_steps:
-        y_scaled = scaler.transform(y_values)
-        last_seq = y_scaled[-n_steps:].reshape(1, n_steps, 1)
-        preds_future_scaled = []
+    if os.path.exists(model_file) and os.path.exists(scaler_file):
+        model, scaler = load_lstm_gab_model(model_file, scaler_file)
 
-        for _ in range(forecast_periods):
-            yhat_scaled = model.predict(last_seq, verbose=0)[0,0]
-            preds_future_scaled.append(yhat_scaled)
-            last_seq = np.append(last_seq[:,1:,:], [[[yhat_scaled]]], axis=1)
+        df_filtered = df_filtered.sort_values("ds")
+        y_values = df_filtered['total_montant'].values.reshape(-1,1)
 
-        preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
-        future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1),
-                                     periods=forecast_periods, freq='W-MON')
-        
-        df_plot = pd.concat([
-            pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['total_montant'], 'type': 'Historique'}),
-            pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
-        ])
-        
-        st.subheader(f"Prévision des retraits pour {selected_gab}")
-        fig = px.line(df_plot, x='ds', y='valeur', color='type', markers=True)
-        fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
-        st.plotly_chart(fig, use_container_width=True)
+        if len(y_values) >= n_steps:
+            y_scaled = scaler.transform(y_values)
+            last_seq = y_scaled[-n_steps:].reshape(1, n_steps, 1)
+            preds_future_scaled = []
 
-        df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
-        csv = df_download.to_csv(index=False)
-        st.download_button(
-            label="Télécharger les prévisions",
-            data=csv,
-            file_name=f"forecast_gab_{selected_gab}.csv",
-            mime='text/csv'
-        )
+            for _ in range(forecast_periods):
+                yhat_scaled = model.predict(last_seq, verbose=0)[0,0]
+                preds_future_scaled.append(yhat_scaled)
+                last_seq = np.append(last_seq[:,1:,:], [[[yhat_scaled]]], axis=1)
+
+            preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
+            future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1),
+                                         periods=forecast_periods, freq='W-MON')
+
+            df_plot = pd.concat([
+                pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['total_montant'], 'type': 'Historique'}),
+                pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
+            ])
+
+            st.subheader(f"Prévision des retraits pour {selected_gab}")
+            fig = px.line(df_plot, x='ds', y='valeur', color='type', markers=True)
+            fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
+            st.plotly_chart(fig, use_container_width=True)
+
+            df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
+            csv = df_download.to_csv(index=False)
+            st.download_button(
+                label="Télécharger les prévisions",
+                data=csv,
+                file_name=f"forecast_gab_{selected_gab}.csv",
+                mime='text/csv'
+            )
+        else:
+            st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
     else:
-        st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
-else:
-    st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Vérifiez que {model_file} et {scaler_file} sont présents.")
+        st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}.")
