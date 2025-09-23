@@ -121,6 +121,7 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
     y_values = df_filtered['y'].values.reshape(-1,1)
     
     if len(y_values) >= n_steps:
+        # Normalisation
         y_scaled = scaler.transform(y_values)
         last_seq = y_scaled[-n_steps:].reshape(1,n_steps,1)
         preds_future_scaled = []
@@ -130,28 +131,26 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
             preds_future_scaled.append(yhat_scaled)
             last_seq = np.append(last_seq[:,1:,:], [[[yhat_scaled]]], axis=1)
 
+        # Inverse transform
         preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
         future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
-        df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
+        
+        # Graphique Historique vs Prévision
+        df_plot = pd.concat([
+            pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['y'], 'type': 'Historique'}),
+            pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
+        ])
+        
+        st.subheader(f"Prévision des retraits pour {selected_gab}")
+        fig = px.line(df_plot, x='ds', y='valeur', color='type', markers=True)
+        fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
+        st.plotly_chart(fig, use_container_width=True)
 
-        df_future['yhat'] = df_future['yhat'].apply(format_montant_k)
-
-        st.subheader("Prévision des retraits (prochaines semaines)")
-        fig2 = px.line(
-            pd.concat([
-                pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['y'], 'type': 'Historique'}),
-                pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
-            ]),
-            x="ds", y="valeur", color="type", markers=True
-        )
-        fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
-        st.plotly_chart(fig2, use_container_width=True)
-
-        st.subheader("Télécharger les prévisions")
+        # Téléchargement CSV avec valeurs brutes
         df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
         csv = df_download.to_csv(index=False)
         st.download_button(
-            label="Télécharger CSV",
+            label="Télécharger les prévisions",
             data=csv,
             file_name=f"forecast_gab_{selected_gab}.csv",
             mime='text/csv'
@@ -159,4 +158,5 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
     else:
         st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
 else:
-    st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Veuillez vérifier que les fichiers {model_file} et {scaler_file} sont présents.")
+    st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Vérifiez que {model_file} et {scaler_file} sont présents.")
+
