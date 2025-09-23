@@ -25,7 +25,7 @@ st.sidebar.image(
 # =========================
 @st.cache_data
 def load_data():
-    df = pd.read_csv("df_subset.csv", parse_dates=['ds'])
+    df = pd.read_csv("df_weekly_clean.csv", parse_dates=['ds'])
     return df
 
 df = load_data()
