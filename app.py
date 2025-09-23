@@ -95,25 +95,29 @@ fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
 st.plotly_chart(fig, use_container_width=True)
 
 # =========================
-# Charger modèle et scaler
+# Prévisions LSTM par GAB
 # =========================
-@st.cache_resource
-def load_lstm_model():
-    model = load_model("lstm_gab_model.h5", compile=False)
-    scaler = joblib.load("scaler.pkl")
-    return model, scaler
-
-model, scaler = load_lstm_model()
-
-# =========================
-# Prévisions LSTM
-# =========================
-n_steps = 26  # corrigé
+n_steps = 26
 forecast_periods = 12
 
 df_filtered = df_filtered.sort_values("ds")
 y_values = df_filtered['y'].values.reshape(-1,1)
 
+# Nom des fichiers modèles/scalers selon le GAB sélectionné
+gab_num = df_filtered['num_gab'].iloc[0]
+model_file = f"lstm_model_{gab_num}.h5"
+scaler_file = f"scaler_{gab_num}.pkl"
+
+# Charger modèle et scaler spécifique
+@st.cache_resource
+def load_lstm_gab_model(model_file, scaler_file):
+    model = load_model(model_file, compile=False)
+    scaler = joblib.load(scaler_file)
+    return model, scaler
+
+model, scaler = load_lstm_gab_model(model_file, scaler_file)
+
+# Prévision si assez de données
 if len(y_values) >= n_steps:
     y_scaled = scaler.transform(y_values)
     last_seq = y_scaled[-n_steps:].reshape(1,n_steps,1)
@@ -125,7 +129,8 @@ if len(y_values) >= n_steps:
         last_seq = np.append(last_seq[:,1:,:], [[[yhat_scaled]]], axis=1)
 
     preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
-    future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
+    future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1),
+                                 periods=forecast_periods, freq='W-MON')
     df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
 
     df_future['yhat'] = df_future['yhat'].apply(format_montant_k)
