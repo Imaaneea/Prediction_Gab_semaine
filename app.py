@@ -27,17 +27,24 @@ st.sidebar.image(
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv")
 
-    # Assurer que 'week' est valide
-    df['week'] = df['week'].apply(lambda x: int(x) if pd.notnull(x) and 1 <= int(x) <= 53 else 1)
+    # Nettoyer la colonne week : s'assurer que c'est un entier entre 1 et 52
+    df['week'] = pd.to_numeric(df['week'], errors='coerce').fillna(1).astype(int)
+    df['week'] = df['week'].apply(lambda x: x if 1 <= x <= 52 else 1)
 
-    # Créer colonne 'ds' pour les dates (lundi de chaque semaine)
-    df['ds'] = df.apply(lambda row: pd.Timestamp.fromisocalendar(int(row['year']), int(row['week']), 1), axis=1)
+    # Créer colonne 'ds' en utilisant la semaine ISO, en prenant le lundi
+    def week_to_date(row):
+        try:
+            return pd.Timestamp.fromisocalendar(int(row['year']), int(row['week']), 1)
+        except:
+            # Si erreur, retourner le premier janvier de l'année
+            return pd.Timestamp(f"{int(row['year'])}-01-01")
+    
+    df['ds'] = df.apply(week_to_date, axis=1)
 
-    # Définir la variable cible pour LSTM
-    df['y'] = df['total_montant']  # ou 'total_nombre' si tu veux prédire les retraits en nombre
+    # Variable cible pour LSTM
+    df['y'] = df['total_montant']
 
     return df
-
 
 df = load_data()
 
