@@ -34,25 +34,20 @@ df = load_data()
 # =========================
 st.sidebar.header("Filtres")
 
-# Filtre Région sans NaN
 region_list = sorted(df['region'].dropna().unique())
 selected_region = st.sidebar.selectbox("Région :", region_list)
 
-# Filtre Agence dépendant de la région, sans NaN
 agence_list = sorted(df[df['region'] == selected_region]['agence'].dropna().unique())
 selected_agence = st.sidebar.selectbox("Agence :", agence_list)
 
-# Filtre GAB dépendant de l'agence, sans NaN
 gab_list = sorted(df[(df['region'] == selected_region) & (df['agence'] == selected_agence)]['lib_gab'].dropna().unique())
 selected_gab = st.sidebar.selectbox("GAB :", gab_list)
 
-# Filtre période
 date_min = df['ds'].min()
 date_max = df['ds'].max()
 start_date = st.sidebar.date_input("Date début :", date_min)
 end_date = st.sidebar.date_input("Date fin :", date_max)
 
-# Filtrer le DataFrame
 df_filtered = df[
     (df['region'] == selected_region) &
     (df['agence'] == selected_agence) &
@@ -113,10 +108,12 @@ model, scaler = load_lstm_model()
 # =========================
 # Prévisions LSTM
 # =========================
-n_steps = 4
+n_steps = 26  # corrigé
 forecast_periods = 12
 
+df_filtered = df_filtered.sort_values("ds")
 y_values = df_filtered['y'].values.reshape(-1,1)
+
 if len(y_values) >= n_steps:
     y_scaled = scaler.transform(y_values)
     last_seq = y_scaled[-n_steps:].reshape(1,n_steps,1)
@@ -131,7 +128,6 @@ if len(y_values) >= n_steps:
     future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
     df_future = pd.DataFrame({'ds': future_dates, 'yhat': preds_future})
 
-    # Formatage K MAD pour affichage
     df_future['yhat'] = df_future['yhat'].apply(format_montant_k)
 
     st.subheader("Prévision des retraits (prochaines semaines)")
@@ -145,7 +141,6 @@ if len(y_values) >= n_steps:
     fig2.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
     st.plotly_chart(fig2, use_container_width=True)
 
-    # Télécharger les résultats
     st.subheader("Télécharger les prévisions")
     df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
     csv = df_download.to_csv(index=False)
