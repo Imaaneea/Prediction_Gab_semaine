@@ -26,8 +26,13 @@ st.sidebar.image(
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv")
-    # Créer 'ds' en utilisant fromisocalendar (ISO year, week, day)
+
+    # Remplacer les valeurs invalides de semaine par 1
+    df['week'] = df['week'].apply(lambda x: int(x) if 1 <= int(x) <= 53 else 1)
+
+    # Créer la colonne 'ds' en utilisant fromisocalendar
     df['ds'] = df.apply(lambda row: pd.Timestamp.fromisocalendar(int(row['year']), int(row['week']), 1), axis=1)
+
     return df
 
 df = load_data()
