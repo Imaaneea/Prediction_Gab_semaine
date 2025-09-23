@@ -105,20 +105,32 @@ def load_lstm_gab_model(model_file, scaler_file):
     return model, scaler
 
 # =========================
+# Filtre GAB avec modèle entraîné
+# =========================
+trained_gabs = [
+    11600028, 11600134, 11600208, 11600268, 11600270, 11600365, 11600414,
+    11600478, 11600521, 11600551, 11600554, 11600618, 1600429, 1600528,
+    1600586, 1600726, 1600742, 1600766, 1601014, 1601059
+]
+
+gab_trained_list = sorted([gab for gab in df[df['region'] == selected_region]['num_gab'].unique() if gab in trained_gabs])
+selected_gab_trained = st.sidebar.selectbox("GAB (modèle LSTM entraîné) :", gab_trained_list)
+
+# =========================
 # Prévisions LSTM
 # =========================
 n_steps = 52  # Fenêtre utilisée lors de l'entraînement
 forecast_periods = 12
 
-gab_num = df_filtered['num_gab'].iloc[0]
-model_file = f"lstm_{gab_num}.h5"
-scaler_file = f"scaler_{gab_num}.pkl"
+gab_num = selected_gab_trained  # Utiliser le GAB filtré sur modèles entraînés
+model_file = f"lstm_gab_{gab_num}.h5"
+scaler_file = f"scaler_gab_{gab_num}.save"
 
 if os.path.exists(model_file) and os.path.exists(scaler_file):
     model, scaler = load_lstm_gab_model(model_file, scaler_file)
     
-    df_filtered = df_filtered.sort_values("ds")
-    y_values = df_filtered['y'].values.reshape(-1,1)
+    df_gab = df[df['num_gab'] == gab_num].sort_values("ds")
+    y_values = df_gab['y'].values.reshape(-1,1)
     
     if len(y_values) >= n_steps:
         # Normalisation
@@ -133,30 +145,32 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
 
         # Inverse transform
         preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
-        future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1),
+        future_dates = pd.date_range(start=df_gab['ds'].max() + pd.Timedelta(weeks=1),
                                      periods=forecast_periods, freq='W-MON')
         
         # Historique + Prévision
         df_plot = pd.concat([
-            pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['y'], 'type': 'Historique'}),
+            pd.DataFrame({'ds': df_gab['ds'], 'valeur': df_gab['y'], 'type': 'Historique'}),
             pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
         ])
         
-        st.subheader(f"Prévision des retraits pour {selected_gab}")
+        st.subheader(f"Prévision LSTM pour {gab_num}")
         fig = px.line(df_plot, x='ds', y='valeur', color='type', markers=True)
         fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
         st.plotly_chart(fig, use_container_width=True)
 
         # Bouton téléchargement
-        df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
+        df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': gab_num})
         csv = df_download.to_csv(index=False)
         st.download_button(
-            label="Télécharger les prévisions",
+            label="Télécharger les prévisions LSTM",
             data=csv,
-            file_name=f"forecast_gab_{selected_gab}.csv",
+            file_name=f"forecast_gab_{gab_num}.csv",
             mime='text/csv'
         )
     else:
         st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
 else:
-    st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Vérifiez que {model_file} et {scaler_file} sont présents.")
+    st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Vérifiez que {model_file} et {scaler_file} existent.")
+
+
