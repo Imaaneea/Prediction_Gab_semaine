@@ -107,11 +107,11 @@ def load_lstm_gab_model(model_file, scaler_file):
 # =========================
 # Prévisions LSTM
 # =========================
-n_steps = 26
+n_steps = 52  # Fenêtre utilisée lors de l'entraînement
 forecast_periods = 12
 
 gab_num = df_filtered['num_gab'].iloc[0]
-model_file = f"lstm_model_{gab_num}.h5"
+model_file = f"lstm_{gab_num}.h5"
 scaler_file = f"scaler_{gab_num}.pkl"
 
 if os.path.exists(model_file) and os.path.exists(scaler_file):
@@ -123,7 +123,7 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
     if len(y_values) >= n_steps:
         # Normalisation
         y_scaled = scaler.transform(y_values)
-        last_seq = y_scaled[-n_steps:].reshape(1,n_steps,1)
+        last_seq = y_scaled[-n_steps:].reshape(1, n_steps, 1)
         preds_future_scaled = []
 
         for _ in range(forecast_periods):
@@ -133,9 +133,10 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
 
         # Inverse transform
         preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
-        future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1), periods=forecast_periods, freq='W-MON')
+        future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1),
+                                     periods=forecast_periods, freq='W-MON')
         
-        # Graphique Historique vs Prévision
+        # Historique + Prévision
         df_plot = pd.concat([
             pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['y'], 'type': 'Historique'}),
             pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
@@ -146,7 +147,7 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
         fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
         st.plotly_chart(fig, use_container_width=True)
 
-        # Téléchargement CSV avec valeurs brutes
+        # Bouton téléchargement
         df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
         csv = df_download.to_csv(index=False)
         st.download_button(
@@ -159,4 +160,3 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
         st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
 else:
     st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Vérifiez que {model_file} et {scaler_file} sont présents.")
-
