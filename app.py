@@ -14,7 +14,7 @@ st.set_page_config(page_title="Prévision des retraits GAB", layout="wide")
 st.title("Prévision des retraits GAB avec LSTM")
 st.write("Application basée sur les modèles LSTM pour prédire les retraits hebdomadaires des GAB.")
 
-# Sidebar avec logo et filtres
+# Sidebar avec logo
 st.sidebar.image(
     "https://www.albaridbank.ma/themes/baridbank/logo.png",
     use_container_width=True
@@ -25,13 +25,15 @@ st.sidebar.image(
 # =========================
 @st.cache_data
 def load_data():
-    df = pd.read_csv("df_weekly_clean.csv", parse_dates=['ds'])
+    df = pd.read_csv("df_weekly_clean.csv")
+    # créer une colonne 'ds' comme lundi de la semaine
+    df['ds'] = pd.to_datetime(df['year'].astype(str) + '-W' + df['week'].astype(str) + '-1', format='%Y-W%W-%w')
     return df
 
 df = load_data()
 
 # =========================
-# Sidebar - Filtres dépendants
+# Sidebar - Filtres
 # =========================
 st.sidebar.header("Filtres")
 
@@ -41,9 +43,17 @@ selected_region = st.sidebar.selectbox("Région :", region_list)
 agence_list = sorted(df[df['region'] == selected_region]['agence'].dropna().unique())
 selected_agence = st.sidebar.selectbox("Agence :", agence_list)
 
-gab_list = sorted(df[(df['region'] == selected_region) & (df['agence'] == selected_agence)]['lib_gab'].dropna().unique())
-selected_gab = st.sidebar.selectbox("GAB :", gab_list)
+# Filtrer uniquement les GAB pour lesquels on a un modèle LSTM
+all_lstm_models = [f.split('_')[2].split('.')[0] for f in os.listdir('.') if f.startswith('lstm_gab') and f.endswith('.h5')]
+gab_list = sorted(
+    df[(df['region'] == selected_region) & 
+       (df['agence'] == selected_agence) &
+       (df['num_gab'].astype(str).isin(all_lstm_models))
+      ]['lib_gab'].dropna().unique()
+)
+selected_gab = st.sidebar.selectbox("GAB (avec modèle LSTM) :", gab_list)
 
+# Dates
 date_min = df['ds'].min()
 date_max = df['ds'].max()
 start_date = st.sidebar.date_input("Date début :", date_min)
@@ -58,7 +68,7 @@ df_filtered = df[
 ]
 
 # =========================
-# Fonction de formatage
+# Fonctions de formatage
 # =========================
 def format_montant_k(val):
     return f"{val/1_000:,.0f} K MAD".replace(",", " ")
@@ -90,13 +100,13 @@ st.dataframe(top10)
 # Evolution hebdomadaire
 # =========================
 st.subheader(f"Évolution hebdomadaire des retraits pour {selected_gab}")
-df_evo = df_filtered.groupby('ds')['y'].sum().reset_index()
-fig = px.line(df_evo, x='ds', y='y', markers=True)
-fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (K MAD)")
+df_evo = df_filtered.groupby('ds')['total_montant'].sum().reset_index()
+fig = px.line(df_evo, x='ds', y='total_montant', markers=True)
+fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
 st.plotly_chart(fig, use_container_width=True)
 
 # =========================
-# Charger modèle et scaler par GAB
+# Charger modèle et scaler
 # =========================
 @st.cache_resource
 def load_lstm_gab_model(model_file, scaler_file):
@@ -105,35 +115,22 @@ def load_lstm_gab_model(model_file, scaler_file):
     return model, scaler
 
 # =========================
-# Filtre GAB avec modèle entraîné
-# =========================
-trained_gabs = [
-    11600028, 11600134, 11600208, 11600268, 11600270, 11600365, 11600414,
-    11600478, 11600521, 11600551, 11600554, 11600618, 1600429, 1600528,
-    1600586, 1600726, 1600742, 1600766, 1601014, 1601059
-]
-
-gab_trained_list = sorted([gab for gab in df[df['region'] == selected_region]['num_gab'].unique() if gab in trained_gabs])
-selected_gab_trained = st.sidebar.selectbox("GAB (modèle LSTM entraîné) :", gab_trained_list)
-
-# =========================
 # Prévisions LSTM
 # =========================
 n_steps = 52  # Fenêtre utilisée lors de l'entraînement
 forecast_periods = 12
 
-gab_num = selected_gab_trained  # Utiliser le GAB filtré sur modèles entraînés
+gab_num = df_filtered['num_gab'].iloc[0]
 model_file = f"lstm_gab_{gab_num}.h5"
 scaler_file = f"scaler_gab_{gab_num}.save"
 
 if os.path.exists(model_file) and os.path.exists(scaler_file):
     model, scaler = load_lstm_gab_model(model_file, scaler_file)
     
-    df_gab = df[df['num_gab'] == gab_num].sort_values("ds")
-    y_values = df_gab['y'].values.reshape(-1,1)
+    df_filtered = df_filtered.sort_values("ds")
+    y_values = df_filtered['total_montant'].values.reshape(-1,1)
     
     if len(y_values) >= n_steps:
-        # Normalisation
         y_scaled = scaler.transform(y_values)
         last_seq = y_scaled[-n_steps:].reshape(1, n_steps, 1)
         preds_future_scaled = []
@@ -143,34 +140,29 @@ if os.path.exists(model_file) and os.path.exists(scaler_file):
             preds_future_scaled.append(yhat_scaled)
             last_seq = np.append(last_seq[:,1:,:], [[[yhat_scaled]]], axis=1)
 
-        # Inverse transform
         preds_future = scaler.inverse_transform(np.array(preds_future_scaled).reshape(-1,1)).flatten()
-        future_dates = pd.date_range(start=df_gab['ds'].max() + pd.Timedelta(weeks=1),
+        future_dates = pd.date_range(start=df_filtered['ds'].max() + pd.Timedelta(weeks=1),
                                      periods=forecast_periods, freq='W-MON')
         
-        # Historique + Prévision
         df_plot = pd.concat([
-            pd.DataFrame({'ds': df_gab['ds'], 'valeur': df_gab['y'], 'type': 'Historique'}),
+            pd.DataFrame({'ds': df_filtered['ds'], 'valeur': df_filtered['total_montant'], 'type': 'Historique'}),
             pd.DataFrame({'ds': future_dates, 'valeur': preds_future, 'type': 'Prévision'})
         ])
         
-        st.subheader(f"Prévision LSTM pour {gab_num}")
+        st.subheader(f"Prévision des retraits pour {selected_gab}")
         fig = px.line(df_plot, x='ds', y='valeur', color='type', markers=True)
         fig.update_layout(xaxis_title="Semaine", yaxis_title="Montant retrait (MAD)")
         st.plotly_chart(fig, use_container_width=True)
 
-        # Bouton téléchargement
-        df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': gab_num})
+        df_download = pd.DataFrame({'ds': future_dates, 'yhat': preds_future, 'lib_gab': selected_gab})
         csv = df_download.to_csv(index=False)
         st.download_button(
-            label="Télécharger les prévisions LSTM",
+            label="Télécharger les prévisions",
             data=csv,
-            file_name=f"forecast_gab_{gab_num}.csv",
+            file_name=f"forecast_gab_{selected_gab}.csv",
             mime='text/csv'
         )
     else:
         st.warning(f"Pas assez de données pour effectuer une prévision LSTM (minimum {n_steps} semaines).")
 else:
-    st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Vérifiez que {model_file} et {scaler_file} existent.")
-
-
+    st.warning(f"Modèle ou scaler non trouvé pour le GAB {gab_num}. Vérifiez que {model_file} et {scaler_file} sont présents.")
