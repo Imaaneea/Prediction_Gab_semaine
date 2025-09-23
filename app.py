@@ -1,150 +1,126 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+import os
+import joblib
+from tensorflow.keras.models import load_model
+import numpy as np
 from sklearn.preprocessing import MinMaxScaler
+from datetime import timedelta
 
-# ===============================
+# ==============================
 # Charger les données
-# ===============================
+# ==============================
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    df["ds"] = pd.to_datetime(df["ds"])
     return df
 
 df = load_data()
 
-st.set_page_config(page_title="Prévision retraits GAB", layout="wide")
-
-# ===============================
-# Filtres latéraux
-# ===============================
+# ==============================
+# Sidebar - Filtres
+# ==============================
 st.sidebar.header("Filtres")
 
 regions = df["region"].dropna().unique()
-region = st.sidebar.selectbox("Région :", options=["Toutes"] + list(regions))
+region_selected = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()))
 
-if region != "Toutes":
-    agences = df[df["region"] == region]["agence"].dropna().unique()
-else:
-    agences = df["agence"].dropna().unique()
-agence = st.sidebar.selectbox("Agence :", options=["Toutes"] + list(agences))
+agences = df[df["region"] == region_selected]["agence"].dropna().unique() if region_selected != "Toutes" else df["agence"].dropna().unique()
+agence_selected = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()))
 
-if agence != "Toutes":
-    gabs = df[df["agence"] == agence]["num_gab"].dropna().unique()
-else:
-    gabs = df["num_gab"].dropna().unique()
-gab = st.sidebar.selectbox("GAB :", options=["Tous"] + list(gabs))
+gabs = df[df["agence"] == agence_selected]["num_gab"].unique() if agence_selected != "Toutes" else df["num_gab"].unique()
+gab_selected = st.sidebar.selectbox("GAB", ["Tous"] + sorted(map(str, gabs.tolist())))
 
-min_date = df["ds"].min().date()
-max_date = df["ds"].max().date()
-date_debut, date_fin = st.sidebar.date_input(
-    "Période :", [min_date, max_date], min_value=min_date, max_value=max_date
-)
+date_min = df["ds"].min()
+date_max = df["ds"].max()
+date_debut, date_fin = st.sidebar.date_input("Période", [date_min, date_max])
 
-# ===============================
-# Filtrage des données
-# ===============================
+# ==============================
+# Filtrage
+# ==============================
 df_filtered = df.copy()
 
-if region != "Toutes":
-    df_filtered = df_filtered[df_filtered["region"] == region]
-if agence != "Toutes":
-    df_filtered = df_filtered[df_filtered["agence"] == agence]
-if gab != "Tous":
-    df_filtered = df_filtered[df_filtered["num_gab"] == gab]
+if region_selected != "Toutes":
+    df_filtered = df_filtered[df_filtered["region"] == region_selected]
 
-df_filtered = df_filtered[
-    (df_filtered["ds"].dt.date >= date_debut) & (df_filtered["ds"].dt.date <= date_fin)
-]
+if agence_selected != "Toutes":
+    df_filtered = df_filtered[df_filtered["agence"] == agence_selected]
 
-# Debug min/max date
-# st.write("Min date filtrée :", df_filtered["ds"].min())
-# st.write("Max date filtrée :", df_filtered["ds"].max())
+if gab_selected != "Tous":
+    df_filtered = df_filtered[df_filtered["num_gab"] == int(gab_selected)]
 
-# ===============================
+df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) & 
+                          (df_filtered["ds"] <= pd.to_datetime(date_fin))]
+
+# ==============================
 # KPIs
-# ===============================
-total_retrait = df_filtered["retrait"].sum()
-total_op = df_filtered["operation"].sum()
-nb_gab = df_filtered["num_gab"].nunique()
+# ==============================
+st.title("📊 Tableau de bord GAB")
 
-st.title("📊 Prévision des retraits GAB")
-st.markdown("Application basée sur les modèles LSTM pour prédire les retraits hebdomadaires des GAB.")
+if not df_filtered.empty:
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        total_retrait = df_filtered["total_montant"].sum()
+        st.metric("Montant total retiré", f"{total_retrait:,.0f} MAD")
+    with col2:
+        total_op = df_filtered["total_nombre"].sum()
+        st.metric("Nombre d'opérations", f"{total_op:,}")
+    with col3:
+        nb_gab = df_filtered["num_gab"].nunique()
+        st.metric("Nombre de GAB", nb_gab)
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Retraits globaux", f"{total_retrait:,.0f} MAD")
-col2.metric("Nombre d'opérations", f"{total_op:,}")
-col3.metric("Nombre de GAB", nb_gab)
+    # ==============================
+    # Graphiques
+    # ==============================
+    st.subheader("📈 Évolution hebdomadaire des retraits")
+    fig1 = px.line(df_filtered, x="ds", y="total_montant", color="num_gab",
+                   title="Évolution hebdomadaire des retraits")
+    st.plotly_chart(fig1, use_container_width=True)
 
-# ===============================
-# Graphique évolution hebdomadaire
-# ===============================
-st.subheader("📈 Évolution hebdomadaire des retraits")
+    st.subheader("📊 Évolution hebdomadaire du nombre d’opérations")
+    fig2 = px.line(df_filtered, x="ds", y="total_nombre", color="num_gab",
+                   title="Évolution hebdomadaire du nombre d’opérations")
+    st.plotly_chart(fig2, use_container_width=True)
 
-if df_filtered.empty:
-    st.warning("Aucune donnée disponible pour ce filtre.")
+    # ==============================
+    # Prédictions LSTM
+    # ==============================
+    st.subheader("🤖 Prévision LSTM pour un GAB")
+
+    if gab_selected != "Tous":
+        gab_num = int(gab_selected)
+        model_path = f"lstm_gab_{gab_num}.h5"
+        scaler_path = f"scaler_gab_{gab_num}.save"
+
+        if os.path.exists(model_path) and os.path.exists(scaler_path):
+            data_gab = df[df["num_gab"] == gab_num][["ds", "total_montant"]].sort_values("ds")
+
+            if len(data_gab) >= 52:
+                # Charger scaler et modèle
+                scaler = joblib.load(scaler_path)
+                model = load_model(model_path)
+
+                values = data_gab["total_montant"].values.reshape(-1, 1)
+                scaled_values = scaler.transform(values)
+
+                X_input = scaled_values[-52:].reshape(1, 52, 1)
+                y_pred_scaled = model.predict(X_input)
+                y_pred = scaler.inverse_transform(y_pred_scaled)
+
+                # Préparer DataFrame résultat
+                next_date = data_gab["ds"].max() + timedelta(weeks=1)
+                forecast_df = pd.DataFrame({"ds": [next_date], "Prévision retrait": [y_pred[0, 0]]})
+
+                fig3 = px.line(data_gab, x="ds", y="total_montant", title=f"Prévision des retraits - GAB {gab_num}")
+                fig3.add_scatter(x=forecast_df["ds"], y=forecast_df["Prévision retrait"], mode="markers+lines", name="Prévision")
+                st.plotly_chart(fig3, use_container_width=True)
+
+                st.success(f"Prévision pour {next_date.date()} : {y_pred[0,0]:,.0f} MAD")
+
+            else:
+                st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
+        else:
+            st.info("⚠️ Aucun modèle LSTM disponible pour ce GAB.")
 else:
-    fig = px.line(df_filtered, x="ds", y="retrait",
-                  title="Évolution hebdomadaire des retraits")
-    st.plotly_chart(fig, use_container_width=True)
-
-# ===============================
-# Prévisions LSTM
-# ===============================
-st.subheader("🤖 Prévisions avec LSTM")
-
-if gab != "Tous":
-    df_gab = df_filtered[df_filtered["num_gab"] == gab].copy()
-    df_gab = df_gab.sort_values("ds")
-
-    if len(df_gab) < 52:
-        st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
-    else:
-        # Préparer les données
-        values = df_gab["retrait"].values.reshape(-1, 1)
-        scaler = MinMaxScaler()
-        scaled = scaler.fit_transform(values)
-
-        X, y = [], []
-        window = 12
-        for i in range(window, len(scaled)):
-            X.append(scaled[i - window:i, 0])
-            y.append(scaled[i, 0])
-        X, y = np.array(X), np.array(y)
-        X = np.reshape(X, (X.shape[0], X.shape[1], 1))
-
-        # Modèle LSTM
-        model = Sequential()
-        model.add(LSTM(50, return_sequences=True, input_shape=(X.shape[1], 1)))
-        model.add(LSTM(50))
-        model.add(Dense(1))
-        model.compile(optimizer="adam", loss="mse")
-        model.fit(X, y, epochs=10, batch_size=8, verbose=0)
-
-        # Prévisions
-        preds = []
-        last_window = scaled[-window:]
-        current_input = last_window.reshape(1, window, 1)
-
-        for _ in range(12):  # 12 semaines de prévision
-            pred = model.predict(current_input, verbose=0)
-            preds.append(pred[0, 0])
-            current_input = np.append(current_input[:, 1:, :], [[pred]], axis=1)
-
-        preds = scaler.inverse_transform(np.array(preds).reshape(-1, 1))
-
-        future_dates = pd.date_range(df_gab["ds"].max() + pd.Timedelta(weeks=1),
-                                     periods=12, freq="W")
-        df_preds = pd.DataFrame({"ds": future_dates, "retrait": preds.flatten()})
-
-        # Graphe
-        fig2 = px.line(df_gab, x="ds", y="retrait", title=f"Prévision des retraits pour le GAB {gab}")
-        fig2.add_scatter(x=df_preds["ds"], y=df_preds["retrait"], mode="lines+markers", name="Prévisions")
-        st.plotly_chart(fig2, use_container_width=True)
-
-else:
-    st.info("Veuillez sélectionner un GAB spécifique pour afficher les prévisions.")
+    st.warning("Aucune donnée disponible pour les filtres sélectionnés.")
