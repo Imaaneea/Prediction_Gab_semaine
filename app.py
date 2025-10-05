@@ -95,44 +95,49 @@ if tab == "Tableau de bord analytique":
     df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
-    # KPIs
-    total_retrait = df_filtered["total_montant"].sum() / 1000
-    total_operations = df_filtered["total_nombre"].sum()
-    nb_gab = df_filtered["lib_gab"].nunique()
-    mean_retrait = df_filtered["total_montant"].mean()
-    std_retrait = df_filtered["total_montant"].std()
-    weekend_sum = df_filtered[df_filtered["week_day"]>=5]["total_montant"].sum()
-    part_weekend = weekend_sum / df_filtered["total_montant"].sum() * 100
+    # KPIs (affichage général sans chiffres détaillés)
+    st.subheader("KPIs principaux")
+    st.markdown("- Volume moyen de retraits par semaine")
+    st.markdown("- Nombre total d'opérations")
+    st.markdown("- Nombre de GAB actifs")
+    st.markdown("- Écart-type des retraits")
+    st.markdown("- Part des retraits pendant le week-end")
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Montant total retiré (K)", f"{total_retrait:,.0f} K")
-    col2.metric("Nombre total d'opérations", f"{total_operations:,.0f}")
-    col3.metric("Nombre de GAB", nb_gab)
-    col4.metric("Montant moyen / semaine", f"{mean_retrait:,.0f}")
-    col5.metric("Écart-type retraits", f"{std_retrait:,.0f}")
-    st.write(f"Part des retraits pendant le week-end : {part_weekend:.2f}%")
+    # ========================================
+    # Camembert - Montant moyen hebdo par région et année
+    # ========================================
+    st.subheader("Répartition des retraits hebdo par région (par année)")
+    years = sorted(df_filtered["year"].unique())
+    selected_year = st.selectbox("Sélectionner l'année", years)
 
-    # Graphiques interactifs
-    st.subheader("Évolution hebdomadaire des retraits")
-    fig = px.line(df_filtered, x="ds", y="total_montant", color="lib_gab",
-                  labels={"ds":"Semaine", "total_montant":"Montant retiré"})
-    st.plotly_chart(fig, use_container_width=True)
+    df_year = df_filtered[df_filtered["year"] == selected_year]
+    df_pie = df_year.groupby("region")["total_montant"].mean().reset_index()
+    df_pie.rename(columns={"total_montant":"Montant moyen hebdo"}, inplace=True)
 
-    st.subheader("Boxplot des retraits par GAB")
-    fig2 = px.box(df_filtered, x="lib_gab", y="total_montant", points="all",
-                  labels={"lib_gab":"GAB", "total_montant":"Montant retiré"})
-    st.plotly_chart(fig2, use_container_width=True)
+    fig_pie = px.pie(df_pie, names="region", values="Montant moyen hebdo",
+                     title=f"Montant moyen hebdo par région en {selected_year}")
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-    st.subheader("Histogramme du nombre de retraits par GAB")
-    ops_per_gab = df_filtered.groupby("lib_gab")["total_nombre"].sum().reset_index()
-    fig3 = px.bar(ops_per_gab, x="lib_gab", y="total_nombre",
-                  labels={"lib_gab":"GAB", "total_nombre":"Nombre d'opérations"})
-    st.plotly_chart(fig3, use_container_width=True)
+    # ========================================
+    # Graphique d'évolution des retraits
+    # ========================================
+    st.subheader("Évolution des retraits")
+    level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["lib_gab"].unique())
+    selected_level = st.selectbox("Sélectionner le niveau", level_options)
 
-    # Tableau filtré
-    st.subheader("Données filtrées")
-    st.dataframe(df_filtered.sort_values("ds", ascending=False))
-    st.download_button("Télécharger CSV filtré", df_filtered.to_csv(index=False), "data_filtered.csv", "text/csv")
+    if selected_level == "Global":
+        df_plot = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
+        title = "Évolution des retraits globaux"
+    elif selected_level in df_filtered["region"].unique():
+        df_plot = df_filtered[df_filtered["region"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
+        title = f"Évolution des retraits - Région {selected_level}"
+    else:
+        df_plot = df_filtered[df_filtered["lib_gab"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
+        title = f"Évolution des retraits - GAB {selected_level}"
+
+    fig_line = px.line(df_plot, x="ds", y="total_montant", title=title,
+                       labels={"ds":"Semaine", "total_montant":"Montant retiré"})
+    st.plotly_chart(fig_line, use_container_width=True)
 
 # ========================================
 # Onglet 2 : Prévisions LSTM 20 GAB
@@ -143,7 +148,6 @@ if tab == "Prévisions LSTM 20 GAB":
     gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
     gab_selected = str(gab_selected)
 
-    # Utiliser df_subset pour données historiques
     if gab_selected not in df_subset["lib_gab"].unique():
         st.warning(f"Aucune donnée historique trouvée pour le GAB {gab_selected}")
     else:
@@ -160,7 +164,7 @@ if tab == "Prévisions LSTM 20 GAB":
             pred_scaled = model.predict(data_scaled, verbose=0)
             pred = scaler.inverse_transform(pred_scaled)
 
-            # Graphique
+            # Graphique prévisions
             fig_pred = go.Figure()
             fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=df_gab["total_montant"],
                                           mode="lines+markers", name="Montant réel"))
@@ -169,7 +173,7 @@ if tab == "Prévisions LSTM 20 GAB":
             fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
             st.plotly_chart(fig_pred, use_container_width=True)
 
-            # Export
+            # Export CSV
             df_pred = pd.DataFrame({
                 "ds": df_gab["ds"],
                 "total_montant_reel": df_gab["total_montant"],
