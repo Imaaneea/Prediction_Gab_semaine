@@ -5,11 +5,12 @@ import glob
 from tensorflow.keras.models import load_model
 import joblib
 import numpy as np
+import io
 
 # ========================================
 # Configuration de la page
 # ========================================
-st.set_page_config(page_title="Dashboard GAB", layout="wide")
+st.set_page_config(page_title="Dashboard GAB - Optimisation Cash", layout="wide")
 
 # ========================================
 # Chargement des données
@@ -30,22 +31,20 @@ df = load_data()
 # ========================================
 @st.cache_data
 def load_lstm_models():
-    models = {}
-    scalers = {}
+    models, scalers = {}, {}
     for model_file in glob.glob("lstm_gab_*.h5"):
         gab_id = model_file.split("_")[-1].replace(".h5", "")
-        scaler_file = f"scaler_gab_{gab_id}.save"
         try:
             models[gab_id] = load_model(model_file, compile=False)
-            scalers[gab_id] = joblib.load(scaler_file)
+            scalers[gab_id] = joblib.load(f"scaler_gab_{gab_id}.save")
         except Exception as e:
-            st.warning(f"Impossible de charger LSTM pour {gab_id}: {e}")
+            st.warning(f"Erreur chargement modèle {gab_id}: {e}")
     return models, scalers
 
 lstm_models, lstm_scalers = load_lstm_models()
 
 # ========================================
-# Onglets
+# Navigation
 # ========================================
 tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
 
@@ -53,32 +52,29 @@ tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions
 # Onglet 1 : Tableau de bord analytique
 # ========================================
 if tab == "Tableau de bord analytique":
-    st.title("Tableau de bord analytique - GAB")
+    st.title("📊 Tableau de bord analytique - Gestion du Cash GAB")
 
-    # Sidebar filtres
+    # Filtres
     st.sidebar.header("Filtres")
     regions = df["region"].dropna().unique()
     region = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()))
-
     if region != "Toutes":
         agences = df[df["region"] == region]["agence"].dropna().unique()
     else:
         agences = df["agence"].dropna().unique()
     agence = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()))
-
     if agence != "Toutes":
         gabs = df[df["agence"] == agence]["num_gab"].dropna().unique()
     else:
         gabs = df["num_gab"].dropna().unique()
     gab = st.sidebar.selectbox("GAB", ["Tous"] + sorted(gabs.tolist()))
 
-    # Filtre de dates
-    date_min = df["ds"].min()
-    date_max = df["ds"].max()
+    # Dates
+    date_min, date_max = df["ds"].min(), df["ds"].max()
     date_debut = st.sidebar.date_input("Date début", date_min)
     date_fin = st.sidebar.date_input("Date fin", date_max)
 
-    # Appliquer filtres
+    # Filtrage
     df_filtered = df.copy()
     if region != "Toutes":
         df_filtered = df_filtered[df_filtered["region"] == region]
@@ -86,135 +82,93 @@ if tab == "Tableau de bord analytique":
         df_filtered = df_filtered[df_filtered["agence"] == agence]
     if gab != "Tous":
         df_filtered = df_filtered[df_filtered["num_gab"] == gab]
-    df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
-                              (df_filtered["ds"] <= pd.to_datetime(date_fin))]
+    df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) & (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
-    # KPIs principaux
-    st.subheader("KPIs principaux")
-    volume_moyen_semaine = df_filtered.groupby("week")["total_montant"].mean().mean()
-    nombre_operations = df_filtered["total_nombre"].sum()
-    nombre_gab_actifs = df_filtered["num_gab"].nunique()
-    ecart_type_retraits = df_filtered["total_montant"].std()
-    part_weekend = df_filtered[df_filtered["week_day"] >= 5]["total_montant"].sum() / df_filtered["total_montant"].sum() * 100
+    # Classification des GABs selon les seuils
+    seuil_haut = df_filtered["total_montant"].quantile(0.9)
+    seuil_bas = df_filtered["total_montant"].quantile(0.1)
+    df_status = df_filtered.groupby("num_gab")["total_montant"].mean().reset_index()
+    df_status["statut"] = df_status["total_montant"].apply(lambda x: 
+        "Critique" if x >= seuil_haut else ("Alerte" if x <= seuil_bas else "Normal"))
+
+    nb_critique = (df_status["statut"] == "Critique").sum()
+    nb_alerte = (df_status["statut"] == "Alerte").sum()
+    nb_normal = (df_status["statut"] == "Normal").sum()
+
+    # KPIs
+    st.subheader("📈 Indicateurs de performance clés (KPI)")
+    volume_moyen = df_filtered["total_montant"].mean() / 1000
+    ecart_type = df_filtered["total_montant"].std() / 1000
+    taux_evol = df_filtered["total_montant"].pct_change().mean() * 100
 
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Volume moyen hebdo", f"{volume_moyen_semaine/1000:,.0f} KDH")
-    col2.metric("Nombre total d'opérations", f"{nombre_operations/1000:,.0f} KDH")
-    col3.metric("Nombre de GAB actifs", f"{nombre_gab_actifs}")
-    col4.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
-    col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
+    col1.metric("Volume moyen hebdo", f"{volume_moyen:,.0f} KDH")
+    col2.metric("Volatilité hebdo", f"{ecart_type:,.1f} KDH")
+    col3.metric("Évolution moyenne", f"{taux_evol:.1f} %")
+    col4.metric("GABs critiques", f"{nb_critique}")
+    col5.metric("GABs en alerte", f"{nb_alerte}")
 
-    # Camembert
-    st.subheader("Répartition des retraits hebdo par région (par année)")
-    years = sorted(df_filtered["year"].unique())
-    selected_year = st.selectbox("Sélectionner l'année", years, key="year_pie")
-    df_year = df_filtered[df_filtered["year"] == selected_year]
-    df_pie = df_year.groupby("region")["total_montant"].mean().reset_index()
-    df_pie["total_montant_kdh"] = df_pie["total_montant"] / 1000
-
-    fig_pie = go.Figure()
-    fig_pie.add_trace(go.Pie(
-        labels=df_pie["region"],
-        values=df_pie["total_montant_kdh"],
-        name=f"Montant moyen hebdo par région en {selected_year}"
-    ))
-    st.plotly_chart(fig_pie, use_container_width=True)
+    if nb_critique > 0:
+        st.warning(f"⚠️ {nb_critique} GAB(s) présentent un risque de rupture de cash (niveau critique).")
 
     # Graphique d'évolution
-    st.subheader("Évolution des retraits")
-    level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["num_gab"].unique())
-    selected_level = st.selectbox("Sélectionner le niveau", level_options, key="evol_level")
+    st.subheader("📉 Évolution des retraits (avec moyenne mobile)")
+    df_plot = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
+    df_plot["moyenne_mobile"] = df_plot["total_montant"].rolling(window=4).mean()
 
-    if selected_level == "Global":
-        df_plot = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
-        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
-        title = "Évolution des retraits globaux"
-    elif selected_level in df_filtered["region"].unique():
-        df_plot = df_filtered[df_filtered["region"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
-        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
-        title = f"Évolution des retraits - Région {selected_level}"
-    else:
-        df_plot = df_filtered[df_filtered["num_gab"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
-        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
-        title = f"Évolution des retraits - GAB {selected_level}"
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df_plot["ds"], y=df_plot["total_montant"]/1000, mode="lines", name="Retraits (KDH)"))
+    fig.add_trace(go.Scatter(x=df_plot["ds"], y=df_plot["moyenne_mobile"]/1000, mode="lines", name="Tendance (moy. mobile)", line=dict(dash="dash")))
+    fig.update_layout(title="Évolution des retraits hebdomadaires", xaxis_title="Date", yaxis_title="Montant (KDH)")
+    st.plotly_chart(fig, use_container_width=True)
 
-    fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(x=df_plot["ds"], y=df_plot["total_montant_kdh"], mode="lines+markers", name="Montant retiré (KDH)"))
-    fig_line.update_layout(title=title, xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
-    st.plotly_chart(fig_line, use_container_width=True)
+    # Export graphique
+    buffer = io.BytesIO()
+    fig.write_image(buffer, format="png")
+    st.download_button("📥 Télécharger le graphique (PNG)", buffer.getvalue(), file_name="evolution_retraits.png")
 
 # ========================================
-# Onglet 2 : Prévisions LSTM 20 GAB
+# Onglet 2 : Prévisions LSTM
 # ========================================
-if tab == "Prévisions LSTM 20 GAB":
-    st.title("Prévisions LSTM - 20 GAB")
+elif tab == "Prévisions LSTM 20 GAB":
+    st.title("🤖 Prévisions LSTM - Anticipation des besoins en cash")
 
-    # GAB disponibles avec modèles
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
-    if not gab_options:
-        st.warning("Aucun GAB disponible avec modèles LSTM.")
+    gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
+
+    df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
+    if len(df_gab) < 52:
+        st.warning("Pas assez de données pour effectuer une prévision.")
     else:
-        gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
-        df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
+        try:
+            model = lstm_models[gab_selected]
+            scaler = lstm_scalers[gab_selected]
+            n_steps = 4
 
-        if len(df_gab) < 52:
-            st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
-        else:
-            st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
+            y_scaled = scaler.transform(df_gab[['y']].values)
+            X = np.array([y_scaled[i:i+n_steps] for i in range(len(y_scaled)-n_steps)]).reshape(-1, n_steps, 1)
+            y_pred = scaler.inverse_transform(model.predict(X))
+            y_true = df_gab['y'].values[n_steps:]
+            dates = df_gab['ds'][n_steps:]
 
-            try:
-                # Préparation
-                n_steps = 4
-                scaler = lstm_scalers[gab_selected]
-                model = lstm_models[gab_selected]
+            # Prévisions futures
+            future_steps = 6
+            last_seq = y_scaled[-n_steps:].reshape(1, n_steps, 1)
+            preds, future_dates = [], []
+            for i in range(future_steps):
+                pred_scaled = model.predict(last_seq)
+                pred = scaler.inverse_transform(pred_scaled)[0, 0]
+                preds.append(pred/1000)
+                last_seq = np.concatenate([last_seq[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
+                future_dates.append(df_gab["ds"].max() + pd.Timedelta(weeks=i+1))
 
-                y_scaled = scaler.transform(df_gab[['y']].values)
-                X = []
-                for i in range(len(y_scaled) - n_steps):
-                    X.append(y_scaled[i:i+n_steps])
-                X = np.array(X).reshape(-1, n_steps, 1)
+            # Graphique
+            fig_pred = go.Figure()
+            fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Réel"))
+            fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten()/1000, mode="lines+markers", name="Prédit"))
+            fig_pred.add_trace(go.Scatter(x=future_dates, y=preds, mode="lines+markers", name="Prévision future"))
+            fig_pred.update_layout(title=f"Prévisions LSTM - GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant (KDH)")
+            st.plotly_chart(fig_pred, use_container_width=True)
 
-                # Prédictions sur toutes les semaines
-                y_pred_scaled = model.predict(X, verbose=0)
-                y_pred = scaler.inverse_transform(y_pred_scaled)
-
-                y_true = df_gab['y'].values[n_steps:]
-                dates = df_gab['ds'][n_steps:]
-
-                # Prévisions futures (4 semaines)
-                last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
-                future_preds = []
-                future_steps = 6
-                future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(future_steps)]
-
-                for _ in range(future_steps):
-                    pred_scaled = model.predict(last_sequence, verbose=0)
-                    pred = scaler.inverse_transform(pred_scaled)[0, 0]
-                    future_preds.append(pred/1000)  # KDH
-                    last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
-
-                # Graphique final
-                fig_pred = go.Figure()
-                fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Montant réel (KDH)"))
-                fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten()/1000, mode="lines+markers", name="Prédiction LSTM (KDH)"))
-                fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name="Prévisions futures (KDH)"))
-
-                fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
-                st.plotly_chart(fig_pred, use_container_width=True)
-
-                # Téléchargement CSV
-                df_csv = pd.DataFrame({
-                    "ds": list(dates) + future_dates,
-                    "y_true_kdh": list(y_true/1000) + [None]*future_steps,
-                    "y_pred_kdh": list(y_pred.flatten()/1000) + future_preds
-                })
-                st.download_button(
-                    label="Télécharger prévisions CSV",
-                    data=df_csv.to_csv(index=False),
-                    file_name=f"pred_{gab_selected}.csv",
-                    mime="text/csv"
-                )
-
-            except Exception as e:
-                st.error(f"Erreur lors de la génération des prévisions: {e}")
- 
+        except Exception as e:
+            st.error(f"Erreur lors des prévisions : {e}")
