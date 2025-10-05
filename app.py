@@ -3,10 +3,10 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import glob
-import os
 from tensorflow.keras.models import load_model
 import joblib
 import numpy as np
+import os
 
 # ========================================
 # Configuration de la page
@@ -19,7 +19,7 @@ st.set_page_config(page_title="Dashboard GAB", layout="wide")
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    df["num_gab"] = pd.to_numeric(df["num_gab"], errors="coerce")
+    df["num_gab"] = df["num_gab"].astype(str).str.strip()
     df["week_day"] = df["ds"].dt.dayofweek
     df["week"] = df["ds"].dt.isocalendar().week
     df["year"] = df["ds"].dt.year
@@ -34,17 +34,32 @@ df = load_data()
 def load_lstm_models():
     models = {}
     scalers = {}
-    for model_file in glob.glob("lstm_gab_*.h5"):
-        gab_id = model_file.split("_")[-1].replace(".h5","")
-        # Vérifier les deux extensions possibles pour le scaler
-        scaler_file = f"scaler_gab_{gab_id}.save"
-        if not os.path.exists(scaler_file):
-            scaler_file = f"scaler_gab_{gab_id}.sav"
+
+    st.write("Debug fichiers modèles et scalers")
+    st.write(f"Répertoire courant: {os.getcwd()}")
+
+    model_files = glob.glob("lstm_gab_*.h5")
+    scaler_files = glob.glob("scaler_gab_*.save")
+    
+    st.write("Modèles LSTM trouvés:\n", model_files)
+    st.write("Scalers trouvés:\n", scaler_files)
+
+    # Extraire l'ID du GAB pour chaque fichier
+    model_ids = [os.path.basename(f).split("_")[-1].replace(".h5","") for f in model_files]
+    scaler_ids = [os.path.basename(f).split("_")[-1].replace(".save","") for f in scaler_files]
+
+    # Détection des GAB ayant à la fois modèle et scaler
+    gab_common = list(set(model_ids) & set(scaler_ids))
+    st.write("GAB détectés avec modèles et scalers:\n", gab_common)
+
+    # Charger modèles et scalers
+    for gab_id in gab_common:
         try:
-            models[gab_id] = load_model(model_file, compile=False)
-            scalers[gab_id] = joblib.load(scaler_file)
+            models[gab_id] = load_model(f"lstm_gab_{gab_id}.h5", compile=False)
+            scalers[gab_id] = joblib.load(f"scaler_gab_{gab_id}.save")
         except Exception as e:
             st.warning(f"Impossible de charger LSTM pour {gab_id}: {e}")
+
     return models, scalers
 
 lstm_models, lstm_scalers = load_lstm_models()
@@ -109,7 +124,7 @@ if tab == "Tableau de bord analytique":
     col4.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
     col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
 
-    # Camembert - Montant moyen hebdo par région et année
+    # Camembert
     st.subheader("Répartition des retraits hebdo par région (par année)")
     years = sorted(df_filtered["year"].unique())
     selected_year = st.selectbox("Sélectionner l'année", years, key="year_pie")
@@ -120,7 +135,7 @@ if tab == "Tableau de bord analytique":
                      title=f"Montant moyen hebdo par région en {selected_year}")
     st.plotly_chart(fig_pie, use_container_width=True)
 
-    # Graphique d'évolution des retraits
+    # Graphique évolution
     st.subheader("Évolution des retraits")
     level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["num_gab"].unique())
     selected_level = st.selectbox("Sélectionner le niveau", level_options, key="evol_level")
@@ -148,46 +163,13 @@ if tab == "Tableau de bord analytique":
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
-    import os
+    # Transformer num_gab en string
+    df["num_gab"] = df["num_gab"].astype(str).str.strip()
+    lstm_models_str = {str(k).strip(): v for k, v in lstm_models.items()}
+    lstm_scalers_str = {str(k).strip(): v for k, v in lstm_scalers.items()}
 
-    # Transformer les numéros GAB en string pour correspondre aux modèles
-    df["num_gab"] = df["num_gab"].astype(str)
-
-    # Vérifier les fichiers détectés
-    st.subheader("Debug fichiers modèles et scalers")
-    lstm_model_files = glob.glob("lstm_gab_*.h5")
-    lstm_scaler_files = glob.glob("scaler_gab_*.save") + glob.glob("scaler_gab_*.sav")
-
-    st.write("Répertoire courant:", os.getcwd())
-    st.write("Modèles LSTM trouvés:", lstm_model_files)
-    st.write("Scalers trouvés:", lstm_scaler_files)
-
-    # Charger les modèles et scalers
-    lstm_models_str = {}
-    lstm_scalers_str = {}
-
-    for model_file in lstm_model_files:
-        gab_id = model_file.split("_")[-1].replace(".h5","")
-        # Trouver le scaler correspondant
-        scaler_file = None
-        for ext in [".save", ".sav"]:
-            possible_file = f"scaler_gab_{gab_id}{ext}"
-            if os.path.exists(possible_file):
-                scaler_file = possible_file
-                break
-        if scaler_file is None:
-            st.warning(f"Aucun scaler trouvé pour le modèle {gab_id}")
-            continue
-        try:
-            lstm_models_str[gab_id] = load_model(model_file, compile=False)
-            lstm_scalers_str[gab_id] = joblib.load(scaler_file)
-        except Exception as e:
-            st.warning(f"Impossible de charger {gab_id}: {e}")
-
-    st.write("GAB détectés avec modèles et scalers:", sorted(lstm_models_str.keys()))
-
-    # Liste des GAB disponibles dans df et avec modèles
-    gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models_str]
+    # Liste des GAB disponibles avec modèles et scalers
+    gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models_str and gab in lstm_scalers_str]
 
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
@@ -201,12 +183,12 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             try:
-                # ====== Préparation des données ======
-                feature_col = ['y']  # correspond à ton entraînement
+                # Préparation des données
+                feature_col = ['y']
                 scaler = lstm_scalers_str[gab_selected]
                 model = lstm_models_str[gab_selected]
 
-                # Reshape pour scaler si nécessaire
+                # Normalisation
                 data_scaled = scaler.transform(df_gab[feature_col].values.reshape(-1,1))
 
                 # Séquence initiale pour LSTM
@@ -235,7 +217,7 @@ if tab == "Prévisions LSTM 20 GAB":
                     "total_montant_pred_kdh": list(df_gab["y"]/1000) + future_preds
                 })
 
-                # ====== Graphique ======
+                # Graphique
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(
                     x=df_pred["ds"], y=df_pred["total_montant_reel_kdh"],
@@ -248,7 +230,7 @@ if tab == "Prévisions LSTM 20 GAB":
                 fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
-                # ====== Téléchargement CSV ======
+                # Téléchargement CSV
                 st.download_button(
                     label="Télécharger prévisions CSV",
                     data=df_pred.to_csv(index=False),
