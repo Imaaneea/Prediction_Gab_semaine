@@ -151,6 +151,7 @@ if tab == "Tableau de bord analytique":
                        labels={"ds":"Semaine", "total_montant":"Montant retiré"})
     st.plotly_chart(fig_line, use_container_width=True)
 
+
 # ========================================
 # Onglet 2 : Prévisions LSTM 20 GAB
 # ========================================
@@ -158,7 +159,7 @@ if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
     # Seuls les GAB pour lesquels un modèle et scaler existent
-    gab_options = [gab for gab in sorted(df["num_gab"].dropna().unique()) if str(int(gab)) in lstm_models]
+    gab_options = [gab for gab in sorted(df["num_gab"].dropna().unique()) if str(gab) in lstm_models]
 
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
@@ -174,12 +175,11 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             # Charger scaler et modèle
-            gab_key = str(int(gab_selected))  # correspondance clé LSTM
-            scaler = lstm_scalers[gab_key]
-            model = lstm_models[gab_key]
+            scaler = lstm_scalers[str(gab_selected)]
+            model = lstm_models[str(gab_selected)]
 
             # Préparer les données
-            data = df_gab["total_montant"].values.reshape(-1,1)
+            data = df_gab["total_montant"].fillna(0).astype(float).values.reshape(-1,1)
             data_scaled = scaler.transform(data)
             pred_scaled = model.predict(data_scaled, verbose=0)
             pred = scaler.inverse_transform(pred_scaled)
@@ -187,17 +187,18 @@ if tab == "Prévisions LSTM 20 GAB":
             # Affichage graphique
             fig_pred = go.Figure()
             fig_pred.add_trace(go.Scatter(
-                x=df_gab["ds"], y=df_gab["total_montant"],
-                mode="lines+markers", name="Montant réel"
+                x=df_gab["ds"], 
+                y=df_gab["total_montant"],
+                mode="lines+markers", 
+                name="Montant réel"
             ))
             fig_pred.add_trace(go.Scatter(
-                x=df_gab["ds"], y=pred.flatten(),
-                mode="lines+markers", name="Montant prédit LSTM"
+                x=df_gab["ds"], 
+                y=pred.flatten(),
+                mode="lines+markers", 
+                name="Montant prédit LSTM"
             ))
-            fig_pred.update_layout(
-                xaxis_title="Date",
-                yaxis_title="Montant retiré"
-            )
+            fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
             st.plotly_chart(fig_pred, use_container_width=True)
 
             # Bouton pour télécharger les prévisions
@@ -212,3 +213,4 @@ if tab == "Prévisions LSTM 20 GAB":
                 f"pred_{gab_selected}.csv",
                 "text/csv"
             )
+
