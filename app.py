@@ -144,17 +144,21 @@ if tab == "Tableau de bord analytique":
     st.plotly_chart(fig_line, use_container_width=True)
 
 # ========================================
-# Onglet 2 : Prévisions LSTM 20 GAB
+# Onglet 2 : Prévisions LSTM 20 GAB avec facteur de variation
 # ========================================
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
-    # GAB disponibles avec modèles
+    # Paramètres de simulation
+    st.sidebar.header("Paramètres de simulation")
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
     else:
-        gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
+        gab_selected = st.sidebar.selectbox("Sélectionner un GAB", gab_options)
+        period_forecast = st.sidebar.selectbox("Période de prévision", [1, 2, 4, 6], help="Nombre de semaines à prévoir")
+        variation = st.sidebar.slider("Facteur de variation (%)", -50, 50, 0, help="Ajustement manuel de la prévision")
+        
         df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
 
         if len(df_gab) < 52:
@@ -181,31 +185,36 @@ if tab == "Prévisions LSTM 20 GAB":
                 y_true = df_gab['y'].values[n_steps:]
                 dates = df_gab['ds'][n_steps:]
 
-                # Prévisions futures (4 semaines)
+                # Prévisions futures avec période choisie
                 last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
                 future_preds = []
-                future_steps = 6
-                future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(future_steps)]
+                future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(period_forecast)]
 
-                for _ in range(future_steps):
+                for _ in range(period_forecast):
                     pred_scaled = model.predict(last_sequence, verbose=0)
                     pred = scaler.inverse_transform(pred_scaled)[0, 0]
-                    future_preds.append(pred/1000)  # KDH
+                    # Appliquer le facteur de variation
+                    pred_adjusted = pred * (1 + variation/100)
+                    future_preds.append(pred_adjusted/1000)  # en KDH
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
                 # Graphique final
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Montant réel (KDH)"))
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten()/1000, mode="lines+markers", name="Prédiction LSTM (KDH)"))
-                fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name="Prévisions futures (KDH)"))
+                fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name=f"Prévisions ajustées ({variation}%)"))
 
-                fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
+                fig_pred.update_layout(
+                    title=f"Prévision LSTM GAB {gab_selected} avec ajustement de {variation}%",
+                    xaxis_title="Date",
+                    yaxis_title="Montant retiré (KDH)"
+                )
                 st.plotly_chart(fig_pred, use_container_width=True)
 
                 # Téléchargement CSV
                 df_csv = pd.DataFrame({
                     "ds": list(dates) + future_dates,
-                    "y_true_kdh": list(y_true/1000) + [None]*future_steps,
+                    "y_true_kdh": list(y_true/1000) + [None]*period_forecast,
                     "y_pred_kdh": list(y_pred.flatten()/1000) + future_preds
                 })
                 st.download_button(
