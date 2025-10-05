@@ -217,3 +217,4 @@ if tab == "Prévisions LSTM 20 GAB":
 
             except Exception as e:
                 st.error(f"Erreur lors de la génération des prévisions: {e}")
+ 
