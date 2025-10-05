@@ -158,15 +158,17 @@ if tab == "Tableau de bord analytique":
     st.plotly_chart(fig_line, use_container_width=True)
 
 # ========================================
-# Onglet 2 : Prévisions LSTM 20 GAB (mis à jour)
+# Onglet 2 : Prévisions LSTM 20 GAB
 # ========================================
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
-    df["num_gab"] = df["num_gab"].astype(str).str.strip()
-    lstm_models_str = {str(k).strip(): v for k, v in lstm_models.items()}
-    lstm_scalers_str = {str(k).strip(): v for k, v in lstm_scalers.items()}
+    # Transformer les numéros GAB en string pour correspondre aux modèles
+    df["num_gab"] = df["num_gab"].astype(str)
+    lstm_models_str = {str(k): v for k, v in lstm_models.items()}
+    lstm_scalers_str = {str(k): v for k, v in lstm_scalers.items()}
 
+    # Liste des GAB disponibles avec modèles et scalers
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models_str and gab in lstm_scalers_str]
 
     if not gab_options:
@@ -181,25 +183,28 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             try:
-                # Préparation des données
+                # ====== Préparation des données ======
                 feature_col = ['y']
                 scaler = lstm_scalers_str[gab_selected]
                 model = lstm_models_str[gab_selected]
 
+                # Normalisation des données historiques
                 data_scaled = scaler.transform(df_gab[feature_col].values.reshape(-1,1))
 
-                # Séquences pour prédiction sur toutes les semaines
+                # Création des séquences pour toutes les semaines
                 n_steps = 4
-                X_seq = []
+                X_all = []
                 for i in range(len(data_scaled)-n_steps):
-                    X_seq.append(data_scaled[i:i+n_steps])
-                X_seq = np.array(X_seq).reshape(-1, n_steps, 1)
+                    X_all.append(data_scaled[i:i+n_steps])
+                X_all = np.array(X_all).reshape(-1, n_steps, 1)
 
-                y_pred_scaled_all = model.predict(X_seq, verbose=0)
+                # ==== Prédictions historiques ====
+                y_pred_scaled_all = model.predict(X_all, verbose=0)
                 y_pred_all = scaler.inverse_transform(y_pred_scaled_all).flatten()
+                y_pred_all_full = np.concatenate([np.array([None]*n_steps), y_pred_all])  # alignement avec y_true
 
-                # Prédictions futures
-                last_sequence = data_scaled[-n_steps:].reshape(1, n_steps, 1)
+                # ==== Prévisions futures ====
+                last_sequence = X_all[-1:]  # dernière séquence
                 forecast_steps = 4
                 future_preds = []
 
@@ -208,45 +213,45 @@ if tab == "Prévisions LSTM 20 GAB":
                     pred = scaler.inverse_transform(pred_scaled.reshape(-1,1))[0,0]
                     future_preds.append(pred)
 
-                    # Mise à jour de la séquence
+                    # Préparer la prochaine séquence
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
-                # Dates futures
+                # ==== Dates futures ====
                 last_date = df_gab["ds"].max()
                 future_dates = [last_date + pd.Timedelta(weeks=i+1) for i in range(forecast_steps)]
 
-                # DataFrame complet pour le graphique
-                df_pred = pd.DataFrame({
+                # ==== DataFrame pour le graphique ====
+                df_plot = pd.DataFrame({
                     "ds": list(df_gab["ds"]) + future_dates,
-                    "y_reel_kdh": list(df_gab["y"]/1000) + [None]*forecast_steps,
-                    "y_pred_all_kdh": list(np.concatenate([y_pred_all, future_preds])/1000)
+                    "y_true": list(df_gab["y"]) + [None]*forecast_steps,
+                    "y_pred": list(y_pred_all_full) + future_preds
                 })
 
-                # Graphique avec toutes les prédictions + futures
+                # ==== Graphique ====
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(
-                    x=df_pred["ds"], y=df_pred["y_reel_kdh"],
+                    x=df_plot["ds"], y=df_plot["y_true"],
                     mode="lines+markers", name="Montant réel (KDH)"
                 ))
                 fig_pred.add_trace(go.Scatter(
-                    x=df_pred["ds"], y=df_pred["y_pred_all_kdh"],
-                    mode="lines+markers", name="Prédiction LSTM (KDH)"
+                    x=df_plot["ds"], y=df_plot["y_pred"],
+                    mode="lines+markers", name="Montant prédit LSTM (KDH)"
                 ))
                 fig_pred.update_layout(
+                    title=f"GAB {gab_selected} - LSTM (historique + prévisions futures)",
                     xaxis_title="Date",
-                    yaxis_title="Montant retiré (KDH)",
-                    title=f"Comparaison réel vs prédiction LSTM pour GAB {gab_selected}"
+                    yaxis_title="Montant retiré",
+                    legend=dict(x=0, y=1)
                 )
                 st.plotly_chart(fig_pred, use_container_width=True)
 
-                # Téléchargement CSV
+                # ==== Téléchargement CSV ====
                 st.download_button(
                     label="Télécharger prévisions CSV",
-                    data=df_pred.to_csv(index=False),
+                    data=df_plot.to_csv(index=False),
                     file_name=f"pred_{gab_selected}.csv",
                     mime="text/csv"
                 )
 
             except Exception as e:
                 st.error(f"Erreur lors de la génération des prévisions: {e}")
-
