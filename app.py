@@ -162,10 +162,12 @@ if tab == "Tableau de bord analytique":
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
+    # Transformer les numéros GAB en string pour correspondre aux modèles
     df_subset["num_gab"] = df_subset["num_gab"].astype(str)
     lstm_models_str = {str(k): v for k, v in lstm_models.items()}
     lstm_scalers_str = {str(k): v for k, v in lstm_scalers.items()}
 
+    # Liste des GAB disponibles avec modèles
     gab_options = [gab for gab in sorted(df_subset["num_gab"].unique()) if gab in lstm_models_str]
 
     if not gab_options:
@@ -180,16 +182,15 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             try:
-                # === Sélection de la seule feature ===
-                feature_col = ['total_montant']  # correspond à y utilisé à l'entraînement
-
+                # ====== Préparation des données ======
+                feature_col = ['total_montant']  # seule feature utilisée
                 scaler = lstm_scalers_str[gab_selected]
                 model = lstm_models_str[gab_selected]
 
                 data_scaled = scaler.transform(df_gab[feature_col].values)
 
-                # === Séquence initiale pour LSTM ===
-                n_steps = 4  # même que l'entraînement
+                # Séquence initiale pour LSTM
+                n_steps = 4
                 last_sequence = data_scaled[-n_steps:].reshape(1, n_steps, 1)
 
                 forecast_steps = 4
@@ -203,26 +204,31 @@ if tab == "Prévisions LSTM 20 GAB":
                     # Préparer la prochaine séquence
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
-                # === Dates futures ===
+                # Dates futures
                 last_date = df_gab["ds"].max()
                 future_dates = [last_date + pd.Timedelta(weeks=i+1) for i in range(forecast_steps)]
 
+                # DataFrame des prédictions
                 df_pred = pd.DataFrame({
                     "ds": list(df_gab["ds"]) + future_dates,
                     "total_montant_reel_kdh": list(df_gab["total_montant"]/1000) + [None]*forecast_steps,
                     "total_montant_pred_kdh": list(df_gab["total_montant"]/1000) + future_preds
                 })
 
-                # === Graphique ===
+                # ====== Graphique ======
                 fig_pred = go.Figure()
-                fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_reel_kdh"],
-                                              mode="lines+markers", name="Montant réel (KDH)"))
-                fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_pred_kdh"],
-                                              mode="lines+markers", name="Montant prédit LSTM (KDH)"))
+                fig_pred.add_trace(go.Scatter(
+                    x=df_pred["ds"], y=df_pred["total_montant_reel_kdh"],
+                    mode="lines+markers", name="Montant réel (KDH)"
+                ))
+                fig_pred.add_trace(go.Scatter(
+                    x=df_pred["ds"], y=df_pred["total_montant_pred_kdh"],
+                    mode="lines+markers", name="Montant prédit LSTM (KDH)"
+                ))
                 fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
-                # === Téléchargement CSV ===
+                # ====== Téléchargement CSV ======
                 st.download_button(
                     label="Télécharger prévisions CSV",
                     data=df_pred.to_csv(index=False),
