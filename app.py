@@ -180,62 +180,67 @@ if tab == "Prévisions LSTM 20 GAB":
         else:
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
+            # Calcul des features comme lors de l'entraînement
+            df_gab['weekday'] = df_gab['ds'].dt.weekday
+            df_gab['month'] = df_gab['ds'].dt.month
+            df_gab['week_of_month'] = ((df_gab['week'] - 1) % 4) + 1
+            df_gab['is_weekend'] = (df_gab['weekday'] >= 5).astype(int)
+            df_gab['is_month_end'] = (df_gab['ds'].dt.day >= 25).astype(int)
+            df_gab['rolling_mean_4'] = df_gab['total_montant'].rolling(4, min_periods=1).mean()
+            df_gab['diff_last_week'] = df_gab['total_montant'].diff().fillna(0)
+
+            features = ['total_montant','week_of_month','month','is_weekend','is_month_end',
+                        'rolling_mean_4','diff_last_week']
+
             # Charger scaler et modèle
             scaler = lstm_scalers_str[gab_selected]
             model = lstm_models_str[gab_selected]
 
-            # Features utilisées pour l'entraînement
-            features = ['total_montant','week_of_month','month','is_weekend','is_month_end',
-                        'rolling_mean_4','diff_last_week']
-
-            # Préparer les données
+            # Normaliser les données historiques
             data = df_gab[features].values
-            sequence_length = 5
-            forecast_steps = 4  # nombre de semaines futures
-
             try:
                 data_scaled = scaler.transform(data)
             except ValueError as e:
                 st.error(f"Erreur lors de la normalisation des données : {e}")
                 st.stop()
 
-            # Boucle pour générer les prévisions futures
+            sequence_length = 5  # identique à l'entraînement
+            forecast_steps = 4   # 4 prochaines semaines
             last_sequence = data_scaled[-sequence_length:].reshape(1, sequence_length, len(features))
             future_preds = []
 
+            # Générer les prévisions
             for _ in range(forecast_steps):
                 pred_scaled = model.predict(last_sequence, verbose=0)
-                # Inverse transform pour obtenir le montant en DH
                 pred = scaler.inverse_transform(
                     np.hstack([pred_scaled, np.zeros((1, len(features)-1))])
-                )[0,0]
+                )[0, 0]
                 future_preds.append(pred)
 
                 # Préparer la prochaine séquence
-                last_features = last_sequence[0, -1, 1:]            # toutes les features sauf total_montant
-                last_features_2d = last_features.reshape(1, -1)     # transformer en 2D
-                next_scaled = np.hstack([pred_scaled, last_features_2d]).reshape(1, 1, len(features))
+                last_features = last_sequence[0, -1, 1:]  # toutes les features sauf le montant
+                next_scaled = np.hstack([pred_scaled, last_features]).reshape(1,1,len(features))
                 last_sequence = np.concatenate([last_sequence[:,1:,:], next_scaled], axis=1)
 
-            # Graphique historique + prévisions
-            df_plot = df_gab[['ds','total_montant']].copy()
-            future_dates = pd.date_range(start=df_gab['ds'].max() + pd.Timedelta(weeks=1),
-                                         periods=forecast_steps, freq='W')
-            df_future = pd.DataFrame({
-                'ds': future_dates,
-                'total_montant': future_preds
+            # Créer DataFrame des prévisions
+            last_date = df_gab["ds"].max()
+            future_dates = pd.date_range(last_date + pd.Timedelta(weeks=1), periods=forecast_steps, freq='W')
+            df_pred = pd.DataFrame({
+                "ds": list(df_gab["ds"]) + list(future_dates),
+                "total_montant_reel": list(df_gab["total_montant"]) + [np.nan]*forecast_steps,
+                "total_montant_pred": list(df_gab["total_montant"]) + future_preds
             })
 
+            # Graphique
             fig_pred = go.Figure()
-            fig_pred.add_trace(go.Scatter(x=df_plot['ds'], y=df_plot['total_montant'],
+            fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_reel"],
                                           mode="lines+markers", name="Montant réel"))
-            fig_pred.add_trace(go.Scatter(x=df_future['ds'], y=df_future['total_montant'],
-                                          mode="lines+markers", name="Prévision LSTM 4 semaines"))
+            fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_pred"],
+                                          mode="lines+markers", name="Montant prédit LSTM"))
             fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
             st.plotly_chart(fig_pred, use_container_width=True)
 
-            # Bouton pour télécharger les prévisions
-            df_pred = pd.concat([df_plot, df_future.rename(columns={'total_montant':'total_montant_pred'})], axis=0)
+            # Bouton téléchargement
             st.download_button(
                 label="Télécharger prévisions CSV",
                 data=df_pred.to_csv(index=False),
