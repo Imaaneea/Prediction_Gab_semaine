@@ -183,7 +183,36 @@ if tab == "Prévisions LSTM 20 GAB":
             pred_scaled = model.predict(data_scaled, verbose=0)
             pred = scaler.inverse_transform(pred_scaled)
 
-            # Affichage graphique
+                       # Affichage graphique
             fig_pred = go.Figure()
-            fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=df_gab["total_montant"],
-                                          mode="lines+markers", name="Montant
+            fig_pred.add_trace(go.Scatter(
+                x=df_gab["ds"], 
+                y=df_gab["total_montant"],
+                mode="lines+markers", 
+                name="Montant réel"
+            ))
+            fig_pred.add_trace(go.Scatter(
+                x=df_gab["ds"], 
+                y=pred.flatten(),
+                mode="lines+markers", 
+                name="Montant prédit LSTM"
+            ))
+            fig_pred.update_layout(
+                xaxis_title="Date",
+                yaxis_title="Montant retiré"
+            )
+            st.plotly_chart(fig_pred, use_container_width=True)
+
+            # Bouton pour télécharger les prévisions
+            df_pred = pd.DataFrame({
+                "ds": df_gab["ds"],
+                "total_montant_reel": df_gab["total_montant"],
+                "total_montant_pred": pred.flatten()
+            })
+            st.download_button(
+                "Télécharger prévisions CSV",
+                df_pred.to_csv(index=False),
+                f"pred_{gab_selected}.csv",
+                "text/csv"
+            )
+
