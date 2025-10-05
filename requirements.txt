@@ -6,3 +6,5 @@ tensorflow
 scikit-learn
 seaborn
 plotly
+folium
+streamlit-folium
