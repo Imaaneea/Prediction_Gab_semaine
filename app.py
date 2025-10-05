@@ -180,25 +180,25 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             try:
-                # === Préparer les données pour le modèle ===
+                # === Sélection de la seule feature ===
+                feature_col = ['total_montant']  # correspond à y utilisé à l'entraînement
+
                 scaler = lstm_scalers_str[gab_selected]
                 model = lstm_models_str[gab_selected]
 
-                # Normalisation
-                data_scaled = scaler.transform(df_gab[['total_montant']].values)
+                data_scaled = scaler.transform(df_gab[feature_col].values)
 
-                # Séquence initiale pour LSTM
-                sequence_length = 4
-                last_sequence = data_scaled[-sequence_length:].reshape(1, sequence_length, 1)
+                # === Séquence initiale pour LSTM ===
+                n_steps = 4  # même que l'entraînement
+                last_sequence = data_scaled[-n_steps:].reshape(1, n_steps, 1)
 
-                # Génération des prévisions futures
                 forecast_steps = 4
                 future_preds = []
 
                 for _ in range(forecast_steps):
                     pred_scaled = model.predict(last_sequence, verbose=0)
                     pred = scaler.inverse_transform(pred_scaled)[0,0]
-                    future_preds.append(pred / 1000)  # Conversion en KDH
+                    future_preds.append(pred/1000)  # conversion en KDH
 
                     # Préparer la prochaine séquence
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
