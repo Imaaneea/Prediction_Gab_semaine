@@ -8,7 +8,7 @@ import joblib
 import numpy as np
 
 # ========================================
-# Configuration
+# Configuration de la page
 # ========================================
 st.set_page_config(page_title="Dashboard GAB", layout="wide")
 
@@ -45,7 +45,7 @@ def load_lstm_models():
             models[gab_id] = load_model(model_file, compile=False)
             scalers[gab_id] = joblib.load(scaler_file)
         except Exception as e:
-            st.warning(f"Impossible de charger {gab_id}: {e}")
+            st.warning(f"Impossible de charger LSTM pour {gab_id}: {e}")
     return models, scalers
 
 lstm_models, lstm_scalers = load_lstm_models()
@@ -100,18 +100,15 @@ if tab == "Tableau de bord analytique":
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
     # =====================
-    # KPIs principaux avec valeurs
+    # KPIs principaux
     # =====================
     st.subheader("KPIs principaux")
-
-    # Calcul des KPIs
     volume_moyen_semaine = df_filtered.groupby("week")["total_montant"].mean().mean()
     nombre_operations = df_filtered["total_nombre"].sum()
     nombre_gab_actifs = df_filtered["lib_gab"].nunique()
     ecart_type_retraits = df_filtered["total_montant"].std()
     part_weekend = df_filtered[df_filtered["week_day"]>=5]["total_montant"].sum() / df_filtered["total_montant"].sum() * 100
 
-    # Affichage des KPI en colonnes
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Volume moyen hebdo", f"{volume_moyen_semaine:,.0f} DH")
     col2.metric("Nombre total d'opérations", f"{nombre_operations:,.0f}")
@@ -129,7 +126,6 @@ if tab == "Tableau de bord analytique":
     df_year = df_filtered[df_filtered["year"] == selected_year]
     df_pie = df_year.groupby("region")["total_montant"].mean().reset_index()
     df_pie.rename(columns={"total_montant":"Montant moyen hebdo"}, inplace=True)
-
     fig_pie = px.pie(df_pie, names="region", values="Montant moyen hebdo",
                      title=f"Montant moyen hebdo par région en {selected_year}")
     st.plotly_chart(fig_pie, use_container_width=True)
@@ -160,14 +156,15 @@ if tab == "Tableau de bord analytique":
 # ========================================
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
-    gab_options = sorted(list(lstm_models.keys()))
-    gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
-    gab_selected = str(gab_selected)
 
-    if gab_selected not in df_subset["lib_gab"].unique():
-        st.warning(f"Aucune donnée historique trouvée pour le GAB {gab_selected}")
+    # Seuls les GAB disponibles dans df_subset et modèles existants
+    gab_options = [gab for gab in sorted(df_subset["lib_gab"].unique()) if gab in lstm_models]
+    if not gab_options:
+        st.warning("Aucun GAB disponible avec modèles LSTM.")
     else:
+        gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
         df_gab = df_subset[df_subset["lib_gab"] == gab_selected].sort_values("ds")
+
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
         else:
