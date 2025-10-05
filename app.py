@@ -211,11 +211,10 @@ if tab == "Prévisions LSTM 20 GAB":
                 "total_montant_reel": df_gab["total_montant"],
                 "total_montant_pred": pred.flatten()
             })
-            st.download_button("Télécharger prévisions CSV",
-                               df_pred.to_csv(index=False),
-                               f"pred_{gab_selected}.csv",
-                               "text/csv")
+            st.download_button(
+    label="Télécharger prévisions CSV",
+    data=df_pred.to_csv(index=False),
+    file_name=f"pred_{gab_selected}.csv",
+    mime="text/csv"
+)
 
-        df_pred.to_csv(index=False),
-        f"pred_{gab_selected}.csv",
-        "text/csv")
