@@ -1,2 +1,5 @@
+<<<<<<< HEAD
 *.h5 filter=lfs diff=lfs merge=lfs -text
 *.save filter=lfs diff=lfs merge=lfs -text
+=======
+>>>>>>> 36a4a90 (Suppression des modèles LSTM et scalers du dépôt)
