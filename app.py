@@ -240,6 +240,3 @@ if tab == "Prévisions LSTM 20 GAB":
                 file_name=f"pred_future_{gab_selected}.csv",
                 mime="text/csv"
             )
-
-                mime="text/csv"
-            )
