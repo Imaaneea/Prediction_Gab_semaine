@@ -113,7 +113,7 @@ if tab == "Tableau de bord analytique":
 
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Volume moyen hebdo", f"{volume_moyen_semaine/1000:,.0f} KDH")
-    col2.metric("Nombre total d'opérations", f"{nombre_operations:,.0f}")
+    col2.metric("Nombre total d'opérations", f"{nombre_operations/1000:,.0f} KDH")
     col3.metric("Nombre de GAB actifs", f"{nombre_gab_actifs}")
     col4.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
     col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
