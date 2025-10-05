@@ -184,7 +184,7 @@ if tab == "Prévisions LSTM 20 GAB":
                 # Prévisions futures (4 semaines)
                 last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
                 future_preds = []
-                future_steps = 4
+                future_steps = 8
                 future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(future_steps)]
 
                 for _ in range(future_steps):
