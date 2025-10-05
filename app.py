@@ -163,18 +163,19 @@ if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
     # Transformer les numéros GAB en string pour correspondre aux modèles
-    df_subset["num_gab"] = df_subset["num_gab"].astype(str)
     lstm_models_str = {str(k): v for k, v in lstm_models.items()}
     lstm_scalers_str = {str(k): v for k, v in lstm_scalers.items()}
 
     # Liste des GAB disponibles avec modèles
-    gab_options = [gab for gab in sorted(df_subset["num_gab"].unique()) if gab in lstm_models_str]
+    gab_options = [gab for gab in sorted(df["num_gab"].astype(str).unique()) if gab in lstm_models_str]
 
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
     else:
         gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
-        df_gab = df_subset[df_subset["num_gab"] == gab_selected].sort_values("ds")
+        
+        # ⚠ Utiliser df_weekly_clean (ici df) et colonne 'y'
+        df_gab = df[df["num_gab"] == int(gab_selected)].sort_values("ds")
 
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
@@ -183,7 +184,7 @@ if tab == "Prévisions LSTM 20 GAB":
 
             try:
                 # ====== Préparation des données ======
-                feature_col = ['total_montant']  # seule feature utilisée
+                feature_col = ['y']  # la colonne utilisée à l'entraînement
                 scaler = lstm_scalers_str[gab_selected]
                 model = lstm_models_str[gab_selected]
 
@@ -211,8 +212,8 @@ if tab == "Prévisions LSTM 20 GAB":
                 # DataFrame des prédictions
                 df_pred = pd.DataFrame({
                     "ds": list(df_gab["ds"]) + future_dates,
-                    "total_montant_reel_kdh": list(df_gab["total_montant"]/1000) + [None]*forecast_steps,
-                    "total_montant_pred_kdh": list(df_gab["total_montant"]/1000) + future_preds
+                    "total_montant_reel_kdh": list(df_gab["y"]/1000) + [None]*forecast_steps,
+                    "total_montant_pred_kdh": list(df_gab["y"]/1000) + future_preds
                 })
 
                 # ====== Graphique ======
