@@ -18,7 +18,7 @@ st.set_page_config(page_title="Dashboard GAB", layout="wide")
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    df["num_gab"] = df["num_gab"].astype("Int64")
+    df["num_gab"] = pd.to_numeric(df["num_gab"], errors="coerce").astype("Int64")
     df["week_day"] = df["ds"].dt.dayofweek
     return df
 
