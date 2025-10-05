@@ -148,10 +148,45 @@ if tab == "Tableau de bord analytique":
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
-    df["num_gab"] = df["num_gab"].astype(str)
-    lstm_models_str = {str(k): v for k, v in lstm_models.items()}
-    lstm_scalers_str = {str(k): v for k, v in lstm_scalers.items()}
+    import os
 
+    # Transformer les numéros GAB en string pour correspondre aux modèles
+    df["num_gab"] = df["num_gab"].astype(str)
+
+    # Vérifier les fichiers détectés
+    st.subheader("Debug fichiers modèles et scalers")
+    lstm_model_files = glob.glob("lstm_gab_*.h5")
+    lstm_scaler_files = glob.glob("scaler_gab_*.save") + glob.glob("scaler_gab_*.sav")
+
+    st.write("Répertoire courant:", os.getcwd())
+    st.write("Modèles LSTM trouvés:", lstm_model_files)
+    st.write("Scalers trouvés:", lstm_scaler_files)
+
+    # Charger les modèles et scalers
+    lstm_models_str = {}
+    lstm_scalers_str = {}
+
+    for model_file in lstm_model_files:
+        gab_id = model_file.split("_")[-1].replace(".h5","")
+        # Trouver le scaler correspondant
+        scaler_file = None
+        for ext in [".save", ".sav"]:
+            possible_file = f"scaler_gab_{gab_id}{ext}"
+            if os.path.exists(possible_file):
+                scaler_file = possible_file
+                break
+        if scaler_file is None:
+            st.warning(f"Aucun scaler trouvé pour le modèle {gab_id}")
+            continue
+        try:
+            lstm_models_str[gab_id] = load_model(model_file, compile=False)
+            lstm_scalers_str[gab_id] = joblib.load(scaler_file)
+        except Exception as e:
+            st.warning(f"Impossible de charger {gab_id}: {e}")
+
+    st.write("GAB détectés avec modèles et scalers:", sorted(lstm_models_str.keys()))
+
+    # Liste des GAB disponibles dans df et avec modèles
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models_str]
 
     if not gab_options:
@@ -164,13 +199,17 @@ if tab == "Prévisions LSTM 20 GAB":
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
         else:
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
+
             try:
-                feature_col = ['y']
+                # ====== Préparation des données ======
+                feature_col = ['y']  # correspond à ton entraînement
                 scaler = lstm_scalers_str[gab_selected]
                 model = lstm_models_str[gab_selected]
 
+                # Reshape pour scaler si nécessaire
                 data_scaled = scaler.transform(df_gab[feature_col].values.reshape(-1,1))
 
+                # Séquence initiale pour LSTM
                 n_steps = 4
                 last_sequence = data_scaled[-n_steps:].reshape(1, n_steps, 1)
 
@@ -180,18 +219,23 @@ if tab == "Prévisions LSTM 20 GAB":
                 for _ in range(forecast_steps):
                     pred_scaled = model.predict(last_sequence, verbose=0)
                     pred = scaler.inverse_transform(pred_scaled.reshape(-1,1))[0,0]
-                    future_preds.append(pred/1000)
+                    future_preds.append(pred/1000)  # conversion en KDH
+
+                    # Préparer la prochaine séquence
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
+                # Dates futures
                 last_date = df_gab["ds"].max()
                 future_dates = [last_date + pd.Timedelta(weeks=i+1) for i in range(forecast_steps)]
 
+                # DataFrame des prédictions
                 df_pred = pd.DataFrame({
                     "ds": list(df_gab["ds"]) + future_dates,
                     "total_montant_reel_kdh": list(df_gab["y"]/1000) + [None]*forecast_steps,
                     "total_montant_pred_kdh": list(df_gab["y"]/1000) + future_preds
                 })
 
+                # ====== Graphique ======
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(
                     x=df_pred["ds"], y=df_pred["total_montant_reel_kdh"],
@@ -204,6 +248,7 @@ if tab == "Prévisions LSTM 20 GAB":
                 fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
+                # ====== Téléchargement CSV ======
                 st.download_button(
                     label="Télécharger prévisions CSV",
                     data=df_pred.to_csv(index=False),
