@@ -180,45 +180,28 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             try:
-                # === Création des features ===
-                df_gab['weekday'] = df_gab['ds'].dt.weekday
-                df_gab['month'] = df_gab['ds'].dt.month
-                df_gab['week_of_month'] = ((df_gab['week'] - 1) % 4) + 1
-                df_gab['is_weekend'] = (df_gab['weekday'] >= 5).astype(int)
-                df_gab['is_month_end'] = (df_gab['ds'].dt.day >= 25).astype(int)
-                df_gab['rolling_mean_4'] = df_gab['total_montant'].rolling(4, min_periods=1).mean()
-                df_gab['diff_last_week'] = df_gab['total_montant'].diff().fillna(0)
-
-                features = ['total_montant','week_of_month','month','is_weekend','is_month_end',
-                            'rolling_mean_4','diff_last_week']
-
-                # Vérifier que toutes les features sont présentes
-                for f in features:
-                    if f not in df_gab.columns:
-                        st.error(f"Colonne manquante: {f}")
-                        st.stop()
-
+                # === Préparer les données pour le modèle ===
                 scaler = lstm_scalers_str[gab_selected]
                 model = lstm_models_str[gab_selected]
 
-                data_scaled = scaler.transform(df_gab[features].values)
+                # Normalisation
+                data_scaled = scaler.transform(df_gab[['total_montant']].values)
 
-                # === Séquence initiale pour LSTM ===
-                sequence_length = 5
-                last_sequence = data_scaled[-sequence_length:].reshape(1, sequence_length, len(features))
+                # Séquence initiale pour LSTM
+                sequence_length = 4
+                last_sequence = data_scaled[-sequence_length:].reshape(1, sequence_length, 1)
 
+                # Génération des prévisions futures
                 forecast_steps = 4
                 future_preds = []
 
                 for _ in range(forecast_steps):
                     pred_scaled = model.predict(last_sequence, verbose=0)
-                    pred = scaler.inverse_transform(np.hstack([pred_scaled, np.zeros((1,len(features)-1))]))[0,0]
-                    future_preds.append(pred/1000)  # Conversion en KDH
+                    pred = scaler.inverse_transform(pred_scaled)[0,0]
+                    future_preds.append(pred / 1000)  # Conversion en KDH
 
                     # Préparer la prochaine séquence
-                    last_features = last_sequence[0,-1,1:].reshape(1,-1)
-                    next_scaled = np.hstack([pred_scaled, last_features]).reshape(1,1,len(features))
-                    last_sequence = np.concatenate([last_sequence[:,1:,:], next_scaled], axis=1)
+                    last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
                 # === Dates futures ===
                 last_date = df_gab["ds"].max()
