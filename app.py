@@ -18,9 +18,17 @@ st.set_page_config(page_title="Dashboard GAB", layout="wide")
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
+    df["lib_gab"] = df["lib_gab"].astype(str)  # forcer en string
     return df
 
+@st.cache_data
+def load_subset():
+    df_subset = pd.read_csv("df_subset.csv", parse_dates=["ds"])
+    df_subset["lib_gab"] = df_subset["lib_gab"].astype(str)
+    return df_subset
+
 df = load_data()
+df_subset = load_subset()
 
 # ========================================
 # Charger les modèles LSTM et scalers des 20 GAB
@@ -33,8 +41,7 @@ def load_lstm_models():
         gab_id = model_file.split("_")[-1].replace(".h5","")
         scaler_file = f"scaler_gab_{gab_id}.save"
         try:
-            # Charger modèle en compile=False pour éviter les erreurs de loss/custom
-            models[gab_id] = load_model(model_file, compile=False)
+            models[gab_id] = load_model(model_file, compile=False)  # compile=False pour éviter les erreurs
             scalers[gab_id] = joblib.load(scaler_file)
         except Exception as e:
             st.warning(f"Impossible de charger le modèle/scaler pour {gab_id}: {e}")
@@ -125,11 +132,13 @@ if tab == "Prévisions LSTM 20 GAB":
     # Sélection du GAB
     gab_options = sorted(list(lstm_models.keys()))
     gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
+    gab_selected = str(gab_selected)
     
-    if gab_selected not in df["lib_gab"].unique():
+    # Utiliser df_subset pour les données historiques
+    if gab_selected not in df_subset["lib_gab"].unique():
         st.warning(f"Aucune donnée historique trouvée pour le GAB {gab_selected}")
     else:
-        df_gab = df[df["lib_gab"] == gab_selected].sort_values("ds")
+        df_gab = df_subset[df_subset["lib_gab"] == gab_selected].sort_values("ds")
         
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
