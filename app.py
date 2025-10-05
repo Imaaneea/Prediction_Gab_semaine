@@ -95,7 +95,7 @@ if tab == "Tableau de bord analytique":
     df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
-    # KPIs (affichage général sans chiffres détaillés)
+    # KPIs principaux (sans chiffres)
     st.subheader("KPIs principaux")
     st.markdown("- Volume moyen de retraits par semaine")
     st.markdown("- Nombre total d'opérations")
@@ -108,7 +108,7 @@ if tab == "Tableau de bord analytique":
     # ========================================
     st.subheader("Répartition des retraits hebdo par région (par année)")
     years = sorted(df_filtered["year"].unique())
-    selected_year = st.selectbox("Sélectionner l'année", years)
+    selected_year = st.selectbox("Sélectionner l'année", years, key="year_pie")
 
     df_year = df_filtered[df_filtered["year"] == selected_year]
     df_pie = df_year.groupby("region")["total_montant"].mean().reset_index()
@@ -123,7 +123,7 @@ if tab == "Tableau de bord analytique":
     # ========================================
     st.subheader("Évolution des retraits")
     level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["lib_gab"].unique())
-    selected_level = st.selectbox("Sélectionner le niveau", level_options)
+    selected_level = st.selectbox("Sélectionner le niveau", level_options, key="evol_level")
 
     if selected_level == "Global":
         df_plot = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
@@ -164,7 +164,6 @@ if tab == "Prévisions LSTM 20 GAB":
             pred_scaled = model.predict(data_scaled, verbose=0)
             pred = scaler.inverse_transform(pred_scaled)
 
-            # Graphique prévisions
             fig_pred = go.Figure()
             fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=df_gab["total_montant"],
                                           mode="lines+markers", name="Montant réel"))
@@ -173,7 +172,6 @@ if tab == "Prévisions LSTM 20 GAB":
             fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
             st.plotly_chart(fig_pred, use_container_width=True)
 
-            # Export CSV
             df_pred = pd.DataFrame({
                 "ds": df_gab["ds"],
                 "total_montant_reel": df_gab["total_montant"],
