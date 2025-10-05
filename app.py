@@ -99,8 +99,8 @@ if tab == "Tableau de bord analytique":
     volume_moyen_semaine = df_filtered.groupby("week")["total_montant"].mean().mean()
 
     col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric("Montant total retraits", f"{montant_total:,.0f} KDH")
-    col2.metric("Nombre total opérations", f"{nombre_operations:,.0f}")
+    col1.metric("Montant total retraits", f"{montant_total/1000:,.0f} KDH")
+    col2.metric("Nombre total opérations", f"{nombre_operations/1000:,.0f}")
     col3.metric("Nombre de GAB actifs", f"{nombre_gab_actifs}")
     col4.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
     col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
