@@ -112,10 +112,10 @@ if tab == "Tableau de bord analytique":
     part_weekend = df_filtered[df_filtered["week_day"]>=5]["total_montant"].sum() / df_filtered["total_montant"].sum() * 100
 
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Volume moyen hebdo", f"{volume_moyen_semaine:,.0f} DH")
+    col1.metric("Volume moyen hebdo", f"{volume_moyen_semaine/1000:,.0f} KDH")
     col2.metric("Nombre total d'opérations", f"{nombre_operations:,.0f}")
     col3.metric("Nombre de GAB actifs", f"{nombre_gab_actifs}")
-    col4.metric("Écart-type des retraits", f"{ecart_type_retraits:,.0f} DH")
+    col4.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
     col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
 
     # =====================
@@ -127,8 +127,8 @@ if tab == "Tableau de bord analytique":
 
     df_year = df_filtered[df_filtered["year"] == selected_year]
     df_pie = df_year.groupby("region")["total_montant"].mean().reset_index()
-    df_pie.rename(columns={"total_montant":"Montant moyen hebdo"}, inplace=True)
-    fig_pie = px.pie(df_pie, names="region", values="Montant moyen hebdo",
+    df_pie["total_montant_kdh"] = df_pie["total_montant"] / 1000
+    fig_pie = px.pie(df_pie, names="region", values="total_montant_kdh",
                      title=f"Montant moyen hebdo par région en {selected_year}")
     st.plotly_chart(fig_pie, use_container_width=True)
 
@@ -141,16 +141,19 @@ if tab == "Tableau de bord analytique":
 
     if selected_level == "Global":
         df_plot = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
+        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
         title = "Évolution des retraits globaux"
     elif selected_level in df_filtered["region"].unique():
         df_plot = df_filtered[df_filtered["region"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
+        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
         title = f"Évolution des retraits - Région {selected_level}"
     else:
         df_plot = df_filtered[df_filtered["num_gab"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
+        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
         title = f"Évolution des retraits - GAB {selected_level}"
 
-    fig_line = px.line(df_plot, x="ds", y="total_montant", title=title,
-                       labels={"ds":"Semaine", "total_montant":"Montant retiré"})
+    fig_line = px.line(df_plot, x="ds", y="total_montant_kdh", title=title,
+                       labels={"ds":"Semaine", "total_montant_kdh":"Montant retiré (KDH)"})
     st.plotly_chart(fig_line, use_container_width=True)
 
 # ========================================
@@ -210,7 +213,7 @@ if tab == "Prévisions LSTM 20 GAB":
                 for _ in range(forecast_steps):
                     pred_scaled = model.predict(last_sequence, verbose=0)
                     pred = scaler.inverse_transform(np.hstack([pred_scaled, np.zeros((1,len(features)-1))]))[0,0]
-                    future_preds.append(pred)
+                    future_preds.append(pred/1000)  # Conversion en KDH
 
                     # Préparer la prochaine séquence
                     last_features = last_sequence[0,-1,1:].reshape(1,-1)
@@ -223,17 +226,17 @@ if tab == "Prévisions LSTM 20 GAB":
 
                 df_pred = pd.DataFrame({
                     "ds": list(df_gab["ds"]) + future_dates,
-                    "total_montant_reel": list(df_gab["total_montant"]) + [None]*forecast_steps,
-                    "total_montant_pred": list(df_gab["total_montant"]) + future_preds
+                    "total_montant_reel_kdh": list(df_gab["total_montant"]/1000) + [None]*forecast_steps,
+                    "total_montant_pred_kdh": list(df_gab["total_montant"]/1000) + future_preds
                 })
 
                 # === Graphique ===
                 fig_pred = go.Figure()
-                fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_reel"],
-                                              mode="lines+markers", name="Montant réel"))
-                fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_pred"],
-                                              mode="lines+markers", name="Montant prédit LSTM"))
-                fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
+                fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_reel_kdh"],
+                                              mode="lines+markers", name="Montant réel (KDH)"))
+                fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_pred_kdh"],
+                                              mode="lines+markers", name="Montant prédit LSTM (KDH)"))
+                fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
                 # === Téléchargement CSV ===
@@ -246,4 +249,3 @@ if tab == "Prévisions LSTM 20 GAB":
 
             except Exception as e:
                 st.error(f"Erreur lors de la génération des prévisions: {e}")
-
