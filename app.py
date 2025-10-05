@@ -61,7 +61,9 @@ tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions
 if tab == "Tableau de bord analytique":
     st.title("Tableau de bord analytique - GAB")
 
+    # =====================
     # Sidebar filtres
+    # =====================
     st.sidebar.header("Filtres")
     regions = df["region"].dropna().unique()
     region = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()))
@@ -84,7 +86,9 @@ if tab == "Tableau de bord analytique":
     date_debut = st.sidebar.date_input("Date début", date_min)
     date_fin = st.sidebar.date_input("Date fin", date_max)
 
+    # =====================
     # Appliquer filtres
+    # =====================
     df_filtered = df.copy()
     if region != "Toutes":
         df_filtered = df_filtered[df_filtered["region"] == region]
@@ -95,17 +99,29 @@ if tab == "Tableau de bord analytique":
     df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
-    # KPIs principaux (sans chiffres)
+    # =====================
+    # KPIs principaux avec valeurs
+    # =====================
     st.subheader("KPIs principaux")
-    st.markdown("- Volume moyen de retraits par semaine")
-    st.markdown("- Nombre total d'opérations")
-    st.markdown("- Nombre de GAB actifs")
-    st.markdown("- Écart-type des retraits")
-    st.markdown("- Part des retraits pendant le week-end")
 
-    # ========================================
+    # Calcul des KPIs
+    volume_moyen_semaine = df_filtered.groupby("week")["total_montant"].mean().mean()
+    nombre_operations = df_filtered["total_nombre"].sum()
+    nombre_gab_actifs = df_filtered["lib_gab"].nunique()
+    ecart_type_retraits = df_filtered["total_montant"].std()
+    part_weekend = df_filtered[df_filtered["week_day"]>=5]["total_montant"].sum() / df_filtered["total_montant"].sum() * 100
+
+    # Affichage des KPI en colonnes
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Volume moyen hebdo", f"{volume_moyen_semaine:,.0f} DH")
+    col2.metric("Nombre total d'opérations", f"{nombre_operations:,.0f}")
+    col3.metric("Nombre de GAB actifs", f"{nombre_gab_actifs}")
+    col4.metric("Écart-type des retraits", f"{ecart_type_retraits:,.0f} DH")
+    col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
+
+    # =====================
     # Camembert - Montant moyen hebdo par région et année
-    # ========================================
+    # =====================
     st.subheader("Répartition des retraits hebdo par région (par année)")
     years = sorted(df_filtered["year"].unique())
     selected_year = st.selectbox("Sélectionner l'année", years, key="year_pie")
@@ -118,9 +134,9 @@ if tab == "Tableau de bord analytique":
                      title=f"Montant moyen hebdo par région en {selected_year}")
     st.plotly_chart(fig_pie, use_container_width=True)
 
-    # ========================================
+    # =====================
     # Graphique d'évolution des retraits
-    # ========================================
+    # =====================
     st.subheader("Évolution des retraits")
     level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["lib_gab"].unique())
     selected_level = st.selectbox("Sélectionner le niveau", level_options, key="evol_level")
