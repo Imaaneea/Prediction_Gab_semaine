@@ -9,7 +9,7 @@ import numpy as np
 # ========================================
 # Configuration de la page
 # ========================================
-st.set_page_config(page_title="Dashboard GAB", layout="wide")
+st.set_page_config(page_title="CashGAB : Dashboard GAB", layout="wide")
 
 # ========================================
 # Chargement des données
@@ -53,7 +53,7 @@ tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions
 # Onglet 1 : Tableau de bord analytique
 # ========================================
 if tab == "Tableau de bord analytique":
-    st.title("Tableau de bord analytique - GAB")
+    st.title("Tableau de bord analytique - CashGAB")
 
     # Sidebar filtres
     st.sidebar.header("Filtres")
