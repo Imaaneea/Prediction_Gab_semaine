@@ -18,14 +18,14 @@ st.set_page_config(page_title="Dashboard GAB", layout="wide")
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    df["lib_gab"] = df["lib_gab"].astype(str).str.strip()
+    df["num_gab"] = df["num_gab"].astype(int)
     df["week_day"] = df["ds"].dt.dayofweek
     return df
 
 @st.cache_data
 def load_subset():
     df_subset = pd.read_csv("df_subset.csv", parse_dates=["ds"])
-    df_subset["lib_gab"] = df_subset["lib_gab"].astype(str).str.strip()
+    df_subset["num_gab"] = df_subset["num_gab"].astype(int)
     return df_subset
 
 df = load_data()
@@ -39,7 +39,7 @@ def load_lstm_models():
     models = {}
     scalers = {}
     for model_file in glob.glob("lstm_gab_*.h5"):
-        gab_id = model_file.split("_")[-1].replace(".h5","").strip()
+        gab_id = model_file.split("_")[-1].replace(".h5","")
         scaler_file = f"scaler_gab_{gab_id}.save"
         try:
             models[gab_id] = load_model(model_file, compile=False)
@@ -49,9 +49,6 @@ def load_lstm_models():
     return models, scalers
 
 lstm_models, lstm_scalers = load_lstm_models()
-# Normaliser les clés pour éviter problème de format
-lstm_models = {str(k).strip(): v for k,v in lstm_models.items()}
-lstm_scalers = {str(k).strip(): v for k,v in lstm_scalers.items()}
 
 # ========================================
 # Onglets
@@ -78,9 +75,9 @@ if tab == "Tableau de bord analytique":
     agence = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()))
 
     if agence != "Toutes":
-        gabs = df[df["agence"] == agence]["lib_gab"].dropna().unique()
+        gabs = df[df["agence"] == agence]["num_gab"].dropna().unique()
     else:
-        gabs = df["lib_gab"].dropna().unique()
+        gabs = df["num_gab"].dropna().unique()
     gab = st.sidebar.selectbox("GAB", ["Tous"] + sorted(gabs.tolist()))
 
     # Filtre de dates
@@ -98,7 +95,7 @@ if tab == "Tableau de bord analytique":
     if agence != "Toutes":
         df_filtered = df_filtered[df_filtered["agence"] == agence]
     if gab != "Tous":
-        df_filtered = df_filtered[df_filtered["lib_gab"] == gab]
+        df_filtered = df_filtered[df_filtered["num_gab"] == int(gab)]
     df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
@@ -108,7 +105,7 @@ if tab == "Tableau de bord analytique":
     st.subheader("KPIs principaux")
     volume_moyen_semaine = df_filtered.groupby("week")["total_montant"].mean().mean()
     nombre_operations = df_filtered["total_nombre"].sum()
-    nombre_gab_actifs = df_filtered["lib_gab"].nunique()
+    nombre_gab_actifs = df_filtered["num_gab"].nunique()
     ecart_type_retraits = df_filtered["total_montant"].std()
     part_weekend = df_filtered[df_filtered["week_day"]>=5]["total_montant"].sum() / df_filtered["total_montant"].sum() * 100
 
@@ -137,7 +134,7 @@ if tab == "Tableau de bord analytique":
     # Graphique d'évolution des retraits
     # =====================
     st.subheader("Évolution des retraits")
-    level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["lib_gab"].unique())
+    level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["num_gab"].unique())
     selected_level = st.selectbox("Sélectionner le niveau", level_options, key="evol_level")
 
     if selected_level == "Global":
@@ -147,7 +144,7 @@ if tab == "Tableau de bord analytique":
         df_plot = df_filtered[df_filtered["region"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
         title = f"Évolution des retraits - Région {selected_level}"
     else:
-        df_plot = df_filtered[df_filtered["lib_gab"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
+        df_plot = df_filtered[df_filtered["num_gab"] == int(selected_level)].groupby("ds")["total_montant"].sum().reset_index()
         title = f"Évolution des retraits - GAB {selected_level}"
 
     fig_line = px.line(df_plot, x="ds", y="total_montant", title=title,
@@ -160,8 +157,8 @@ if tab == "Tableau de bord analytique":
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
-    # Seuls les GAB pour lesquels un modèle et scaler existent
-    gab_options = [gab for gab in sorted(df["lib_gab"].unique()) if gab in lstm_models]
+    # Seuls les GAB pour lesquels un modèle et scaler existent et qui sont dans df
+    gab_options = sorted([gab_id for gab_id in lstm_models.keys() if int(gab_id) in df["num_gab"].values])
 
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
@@ -169,7 +166,7 @@ if tab == "Prévisions LSTM 20 GAB":
         gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
 
         # Récupérer les données historiques depuis df_weekly_clean
-        df_gab = df[df["lib_gab"] == gab_selected].sort_values("ds")
+        df_gab = df[df["num_gab"] == int(gab_selected)].sort_values("ds")
 
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
