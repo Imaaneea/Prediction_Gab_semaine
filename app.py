@@ -18,14 +18,16 @@ st.set_page_config(page_title="Dashboard GAB", layout="wide")
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    df["num_gab"] = pd.to_numeric(df["num_gab"], errors="coerce").astype("Int64")
+    df["num_gab"] = pd.to_numeric(df["num_gab"], errors="coerce")
     df["week_day"] = df["ds"].dt.dayofweek
+    df["week"] = df["ds"].dt.isocalendar().week
+    df["year"] = df["ds"].dt.year
     return df
 
 @st.cache_data
 def load_subset():
     df_subset = pd.read_csv("df_subset.csv", parse_dates=["ds"])
-    df_subset["num_gab"] = df_subset["num_gab"].astype("Int64")
+    df_subset["num_gab"] = pd.to_numeric(df_subset["num_gab"], errors="coerce")
     return df_subset
 
 df = load_data()
@@ -151,7 +153,6 @@ if tab == "Tableau de bord analytique":
                        labels={"ds":"Semaine", "total_montant":"Montant retiré"})
     st.plotly_chart(fig_line, use_container_width=True)
 
-
 # ========================================
 # Onglet 2 : Prévisions LSTM 20 GAB
 # ========================================
@@ -159,7 +160,7 @@ if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
     # Seuls les GAB pour lesquels un modèle et scaler existent
-    gab_options = [gab for gab in sorted(df["num_gab"].dropna().unique()) if str(gab) in lstm_models]
+    gab_options = [str(gab) for gab in sorted(df["num_gab"].dropna().unique()) if str(gab) in lstm_models]
 
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
@@ -167,7 +168,7 @@ if tab == "Prévisions LSTM 20 GAB":
         gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
 
         # Récupérer les données historiques depuis df_weekly_clean
-        df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
+        df_gab = df[df["num_gab"] == int(gab_selected)].sort_values("ds")
 
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
@@ -175,30 +176,40 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             # Charger scaler et modèle
-            scaler = lstm_scalers[str(gab_selected)]
-            model = lstm_models[str(gab_selected)]
+            scaler = lstm_scalers[gab_selected]
+            model = lstm_models[gab_selected]
 
             # Préparer les données
-            data = df_gab["total_montant"].fillna(0).astype(float).values.reshape(-1,1)
-            data_scaled = scaler.transform(data)
+            data = df_gab["total_montant"].fillna(0).astype(float).values.reshape(-1, 1)
+
+            try:
+                data_scaled = scaler.transform(data)
+            except ValueError as e:
+                st.error(f"Erreur lors de l'application du scaler : {e}")
+                st.stop()
+
+            # Prédiction
             pred_scaled = model.predict(data_scaled, verbose=0)
             pred = scaler.inverse_transform(pred_scaled)
 
             # Affichage graphique
             fig_pred = go.Figure()
             fig_pred.add_trace(go.Scatter(
-                x=df_gab["ds"], 
+                x=df_gab["ds"],
                 y=df_gab["total_montant"],
-                mode="lines+markers", 
+                mode="lines+markers",
                 name="Montant réel"
             ))
             fig_pred.add_trace(go.Scatter(
-                x=df_gab["ds"], 
+                x=df_gab["ds"],
                 y=pred.flatten(),
-                mode="lines+markers", 
+                mode="lines+markers",
                 name="Montant prédit LSTM"
             ))
-            fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
+            fig_pred.update_layout(
+                xaxis_title="Date",
+                yaxis_title="Montant retiré"
+            )
             st.plotly_chart(fig_pred, use_container_width=True)
 
             # Bouton pour télécharger les prévisions
@@ -213,4 +224,3 @@ if tab == "Prévisions LSTM 20 GAB":
                 f"pred_{gab_selected}.csv",
                 "text/csv"
             )
-
