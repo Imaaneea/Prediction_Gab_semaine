@@ -174,47 +174,70 @@ if tab == "Prévisions LSTM 20 GAB":
         gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
 
         # Récupérer les données historiques depuis df_subset
-        df_gab = df_subset[df_subset["num_gab"] == gab_selected].sort_values("ds")
+        df_gab = df_subset[df_subset["num_gab"] == gab_selected].sort_values("ds").copy()
+        df_gab['ds'] = pd.to_datetime(df_gab['ds'])
 
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
         else:
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
+            # Re-créer toutes les features comme à l'entraînement
+            df_gab['weekday'] = df_gab['ds'].dt.weekday
+            df_gab['month'] = df_gab['ds'].dt.month
+            df_gab['week_of_month'] = ((df_gab['week'] - 1) % 4) + 1
+            df_gab['is_weekend'] = (df_gab['weekday'] >= 5).astype(int)
+            df_gab['is_month_end'] = (df_gab['ds'].dt.day >= 25).astype(int)
+            df_gab['rolling_mean_4'] = df_gab['total_montant'].rolling(4, min_periods=1).mean()
+            df_gab['diff_last_week'] = df_gab['total_montant'].diff().fillna(0)
+
+            features = ['total_montant','week_of_month','month','is_weekend','is_month_end','rolling_mean_4','diff_last_week']
+
             # Charger scaler et modèle
             scaler = lstm_scalers_str[gab_selected]
             model = lstm_models_str[gab_selected]
 
-            # Préparer les données
-            data = df_gab["total_montant"].values.reshape(-1, 1)
+            # Normalisation
             try:
-                data_scaled = scaler.transform(data)
+                data_scaled = scaler.transform(df_gab[features].values)
             except ValueError as e:
                 st.error(f"Erreur lors de la normalisation des données : {e}")
                 st.stop()
 
-            pred_scaled = model.predict(data_scaled, verbose=0)
-            pred = scaler.inverse_transform(pred_scaled)
+            # Création des séquences
+            sequence_length = 5
+            X_seq = []
+            for i in range(len(data_scaled) - sequence_length):
+                X_seq.append(data_scaled[i:i+sequence_length])
+            X_seq = np.array(X_seq)
 
-            # Affichage graphique
+            # Prédiction LSTM
+            Y_pred_scaled = model.predict(X_seq, verbose=0)
+            # Reconstruire les valeurs originales
+            Y_pred = scaler.inverse_transform(
+                np.hstack([Y_pred_scaled, np.zeros((len(Y_pred_scaled), len(features)-1))])
+            )[:,0]
+
+            # DataFrame pour affichage et export
+            df_pred = pd.DataFrame({
+                "ds": df_gab["ds"].iloc[sequence_length:].values,
+                "total_montant_reel": df_gab["total_montant"].iloc[sequence_length:].values,
+                "total_montant_pred": Y_pred
+            })
+
+            # Graphique
             fig_pred = go.Figure()
-            fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=df_gab["total_montant"],
+            fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_reel"],
                                           mode="lines+markers", name="Montant réel"))
-            fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=pred.flatten(),
+            fig_pred.add_trace(go.Scatter(x=df_pred["ds"], y=df_pred["total_montant_pred"],
                                           mode="lines+markers", name="Montant prédit LSTM"))
             fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
             st.plotly_chart(fig_pred, use_container_width=True)
 
-            # Bouton pour télécharger les prévisions
-            df_pred = pd.DataFrame({
-                "ds": df_gab["ds"],
-                "total_montant_reel": df_gab["total_montant"],
-                "total_montant_pred": pred.flatten()
-            })
+            # Bouton téléchargement CSV
             st.download_button(
-    label="Télécharger prévisions CSV",
-    data=df_pred.to_csv(index=False),
-    file_name=f"pred_{gab_selected}.csv",
-    mime="text/csv"
-)
-
+                label="Télécharger prévisions CSV",
+                data=df_pred.to_csv(index=False),
+                file_name=f"pred_{gab_selected}.csv",
+                mime="text/csv"
+            )
