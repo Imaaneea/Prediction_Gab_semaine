@@ -18,14 +18,15 @@ st.set_page_config(page_title="Dashboard GAB", layout="wide")
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    df["num_gab"] = df["num_gab"].astype(int)
+    # Nullable integer pour éviter les erreurs de conversion
+    df["num_gab"] = df["num_gab"].astype("Int64")
     df["week_day"] = df["ds"].dt.dayofweek
     return df
 
 @st.cache_data
 def load_subset():
     df_subset = pd.read_csv("df_subset.csv", parse_dates=["ds"])
-    df_subset["num_gab"] = df_subset["num_gab"].astype(int)
+    df_subset["num_gab"] = df_subset["num_gab"].astype("Int64")
     return df_subset
 
 df = load_data()
@@ -39,7 +40,7 @@ def load_lstm_models():
     models = {}
     scalers = {}
     for model_file in glob.glob("lstm_gab_*.h5"):
-        gab_id = model_file.split("_")[-1].replace(".h5","")
+        gab_id = int(model_file.split("_")[-1].replace(".h5",""))
         scaler_file = f"scaler_gab_{gab_id}.save"
         try:
             models[gab_id] = load_model(model_file, compile=False)
@@ -95,7 +96,7 @@ if tab == "Tableau de bord analytique":
     if agence != "Toutes":
         df_filtered = df_filtered[df_filtered["agence"] == agence]
     if gab != "Tous":
-        df_filtered = df_filtered[df_filtered["num_gab"] == int(gab)]
+        df_filtered = df_filtered[df_filtered["num_gab"] == gab]
     df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
@@ -144,7 +145,7 @@ if tab == "Tableau de bord analytique":
         df_plot = df_filtered[df_filtered["region"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
         title = f"Évolution des retraits - Région {selected_level}"
     else:
-        df_plot = df_filtered[df_filtered["num_gab"] == int(selected_level)].groupby("ds")["total_montant"].sum().reset_index()
+        df_plot = df_filtered[df_filtered["num_gab"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
         title = f"Évolution des retraits - GAB {selected_level}"
 
     fig_line = px.line(df_plot, x="ds", y="total_montant", title=title,
@@ -157,8 +158,8 @@ if tab == "Tableau de bord analytique":
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
-    # Seuls les GAB pour lesquels un modèle et scaler existent et qui sont dans df
-    gab_options = sorted([gab_id for gab_id in lstm_models.keys() if int(gab_id) in df["num_gab"].values])
+    # Seuls les GAB pour lesquels un modèle et scaler existent
+    gab_options = [gab for gab in sorted(df["num_gab"].dropna().unique()) if gab in lstm_models]
 
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
@@ -166,12 +167,12 @@ if tab == "Prévisions LSTM 20 GAB":
         gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
 
         # Récupérer les données historiques depuis df_weekly_clean
-        df_gab = df[df["num_gab"] == int(gab_selected)].sort_values("ds")
+        df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
 
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
         else:
-            st.subheader(f"Visualisation des données et prévisions pour {gab_selected}")
+            st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             # Charger scaler et modèle
             scaler = lstm_scalers[gab_selected]
