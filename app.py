@@ -6,6 +6,7 @@ import glob
 from tensorflow.keras.models import load_model
 import joblib
 import numpy as np
+import os
 
 # ========================================
 # Configuration de la page
@@ -40,9 +41,10 @@ df_subset = load_subset()
 def load_lstm_models():
     models = {}
     scalers = {}
-    for model_file in glob.glob("lstm_gab_*.h5"):
-        gab_id = model_file.split("_")[-1].replace(".h5","")
-        scaler_file = f"scaler_gab_{gab_id}.save"
+    models_dir = "models_lstm_h5"  # dossier où sont sauvegardés tes modèles
+    for model_file in glob.glob(os.path.join(models_dir, "lstm_gab_*.h5")):
+        gab_id = os.path.basename(model_file).split("_")[-1].replace(".h5","")
+        scaler_file = os.path.join(models_dir, f"scaler_gab_{gab_id}.save")
         try:
             models[gab_id] = load_model(model_file, compile=False)
             scalers[gab_id] = joblib.load(scaler_file)
@@ -63,9 +65,7 @@ tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions
 if tab == "Tableau de bord analytique":
     st.title("Tableau de bord analytique - GAB")
 
-    # =====================
     # Sidebar filtres
-    # =====================
     st.sidebar.header("Filtres")
     regions = df["region"].dropna().unique()
     region = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()))
@@ -88,9 +88,7 @@ if tab == "Tableau de bord analytique":
     date_debut = st.sidebar.date_input("Date début", date_min)
     date_fin = st.sidebar.date_input("Date fin", date_max)
 
-    # =====================
     # Appliquer filtres
-    # =====================
     df_filtered = df.copy()
     if region != "Toutes":
         df_filtered = df_filtered[df_filtered["region"] == region]
@@ -101,9 +99,7 @@ if tab == "Tableau de bord analytique":
     df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
-    # =====================
     # KPIs principaux
-    # =====================
     st.subheader("KPIs principaux")
     volume_moyen_semaine = df_filtered.groupby("week")["total_montant"].mean().mean()
     nombre_operations = df_filtered["total_nombre"].sum()
@@ -118,13 +114,10 @@ if tab == "Tableau de bord analytique":
     col4.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
     col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
 
-    # =====================
-    # Camembert - Montant moyen hebdo par région et année
-    # =====================
+    # Camembert
     st.subheader("Répartition des retraits hebdo par région (par année)")
     years = sorted(df_filtered["year"].unique())
     selected_year = st.selectbox("Sélectionner l'année", years, key="year_pie")
-
     df_year = df_filtered[df_filtered["year"] == selected_year]
     df_pie = df_year.groupby("region")["total_montant"].mean().reset_index()
     df_pie["total_montant_kdh"] = df_pie["total_montant"] / 1000
@@ -132,9 +125,7 @@ if tab == "Tableau de bord analytique":
                      title=f"Montant moyen hebdo par région en {selected_year}")
     st.plotly_chart(fig_pie, use_container_width=True)
 
-    # =====================
-    # Graphique d'évolution des retraits
-    # =====================
+    # Graphique évolution
     st.subheader("Évolution des retraits")
     level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["num_gab"].unique())
     selected_level = st.selectbox("Sélectionner le niveau", level_options, key="evol_level")
@@ -163,19 +154,18 @@ if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
     # Transformer les numéros GAB en string pour correspondre aux modèles
+    df["num_gab"] = df["num_gab"].astype(str)
     lstm_models_str = {str(k): v for k, v in lstm_models.items()}
     lstm_scalers_str = {str(k): v for k, v in lstm_scalers.items()}
 
     # Liste des GAB disponibles avec modèles
-    gab_options = [gab for gab in sorted(df["num_gab"].astype(str).unique()) if gab in lstm_models_str]
+    gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models_str]
 
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
     else:
         gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
-        
-        # ⚠ Utiliser df_weekly_clean (ici df) et colonne 'y'
-        df_gab = df[df["num_gab"] == int(gab_selected)].sort_values("ds")
+        df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
 
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
@@ -183,14 +173,14 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             try:
-                # ====== Préparation des données ======
-                feature_col = ['y']  # la colonne utilisée à l'entraînement
+                # Préparation des données
+                feature_col = ['total_montant']  # seule feature utilisée
                 scaler = lstm_scalers_str[gab_selected]
                 model = lstm_models_str[gab_selected]
 
                 data_scaled = scaler.transform(df_gab[feature_col].values)
 
-                # Séquence initiale pour LSTM
+                # Séquence initiale
                 n_steps = 4
                 last_sequence = data_scaled[-n_steps:].reshape(1, n_steps, 1)
 
@@ -200,9 +190,8 @@ if tab == "Prévisions LSTM 20 GAB":
                 for _ in range(forecast_steps):
                     pred_scaled = model.predict(last_sequence, verbose=0)
                     pred = scaler.inverse_transform(pred_scaled)[0,0]
-                    future_preds.append(pred/1000)  # conversion en KDH
+                    future_preds.append(pred/1000)  # conversion KDH
 
-                    # Préparer la prochaine séquence
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
                 # Dates futures
@@ -212,11 +201,11 @@ if tab == "Prévisions LSTM 20 GAB":
                 # DataFrame des prédictions
                 df_pred = pd.DataFrame({
                     "ds": list(df_gab["ds"]) + future_dates,
-                    "total_montant_reel_kdh": list(df_gab["y"]/1000) + [None]*forecast_steps,
-                    "total_montant_pred_kdh": list(df_gab["y"]/1000) + future_preds
+                    "total_montant_reel_kdh": list(df_gab["total_montant"]/1000) + [None]*forecast_steps,
+                    "total_montant_pred_kdh": list(df_gab["total_montant"]/1000) + future_preds
                 })
 
-                # ====== Graphique ======
+                # Graphique
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(
                     x=df_pred["ds"], y=df_pred["total_montant_reel_kdh"],
@@ -229,7 +218,7 @@ if tab == "Prévisions LSTM 20 GAB":
                 fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
-                # ====== Téléchargement CSV ======
+                # Téléchargement CSV
                 st.download_button(
                     label="Télécharger prévisions CSV",
                     data=df_pred.to_csv(index=False),
