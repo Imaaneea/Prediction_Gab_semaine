@@ -218,5 +218,4 @@ if tab == "Prévisions LSTM 20 GAB":
 
         df_pred.to_csv(index=False),
         f"pred_{gab_selected}.csv",
-        "text/csv"
-    )
+        "text/csv")
