@@ -1,24 +1,25 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
 import glob
 from tensorflow.keras.models import load_model
 import joblib
 import numpy as np
 
 # ========================================
-# Configuration de la page
+# Configuration
 # ========================================
 st.set_page_config(page_title="Dashboard GAB", layout="wide")
 
 # ========================================
-# Charger les données
+# Chargement des données
 # ========================================
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    df["lib_gab"] = df["lib_gab"].astype(str)  # forcer en string
+    df["lib_gab"] = df["lib_gab"].astype(str)
+    df["week_day"] = df["ds"].dt.dayofweek
     return df
 
 @st.cache_data
@@ -31,7 +32,7 @@ df = load_data()
 df_subset = load_subset()
 
 # ========================================
-# Charger les modèles LSTM et scalers des 20 GAB
+# Chargement des modèles LSTM
 # ========================================
 @st.cache_data
 def load_lstm_models():
@@ -41,10 +42,10 @@ def load_lstm_models():
         gab_id = model_file.split("_")[-1].replace(".h5","")
         scaler_file = f"scaler_gab_{gab_id}.save"
         try:
-            models[gab_id] = load_model(model_file, compile=False)  # compile=False pour éviter les erreurs
+            models[gab_id] = load_model(model_file, compile=False)
             scalers[gab_id] = joblib.load(scaler_file)
         except Exception as e:
-            st.warning(f"Impossible de charger le modèle/scaler pour {gab_id}: {e}")
+            st.warning(f"Impossible de charger {gab_id}: {e}")
     return models, scalers
 
 lstm_models, lstm_scalers = load_lstm_models()
@@ -59,30 +60,30 @@ tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions
 # ========================================
 if tab == "Tableau de bord analytique":
     st.title("Tableau de bord analytique - GAB")
-    
+
     # Sidebar filtres
     st.sidebar.header("Filtres")
     regions = df["region"].dropna().unique()
     region = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()))
-    
+
     if region != "Toutes":
         agences = df[df["region"] == region]["agence"].dropna().unique()
     else:
         agences = df["agence"].dropna().unique()
     agence = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()))
-    
+
     if agence != "Toutes":
         gabs = df[df["agence"] == agence]["lib_gab"].dropna().unique()
     else:
         gabs = df["lib_gab"].dropna().unique()
     gab = st.sidebar.selectbox("GAB", ["Tous"] + sorted(gabs.tolist()))
-    
-    # Filtres de dates
+
+    # Filtre de dates
     date_min = df["ds"].min()
     date_max = df["ds"].max()
     date_debut = st.sidebar.date_input("Date début", date_min)
     date_fin = st.sidebar.date_input("Date fin", date_max)
-    
+
     # Appliquer filtres
     df_filtered = df.copy()
     if region != "Toutes":
@@ -93,32 +94,42 @@ if tab == "Tableau de bord analytique":
         df_filtered = df_filtered[df_filtered["lib_gab"] == gab]
     df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
-    
-    # KPIs globaux
-    total_retrait = df_filtered["total_montant"].sum() / 1000  # en K
-    total_operations = df_filtered["total_nombre"].sum() / 1000  # en K
-    nb_gab = df_filtered["num_gab"].nunique()
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Montant total retiré (K)", f"{total_retrait:,.1f} K")
-    col2.metric("Nombre d'opérations (K)", f"{total_operations:,.1f} K")
+
+    # KPIs
+    total_retrait = df_filtered["total_montant"].sum() / 1000
+    total_operations = df_filtered["total_nombre"].sum()
+    nb_gab = df_filtered["lib_gab"].nunique()
+    mean_retrait = df_filtered["total_montant"].mean()
+    std_retrait = df_filtered["total_montant"].std()
+    weekend_sum = df_filtered[df_filtered["week_day"]>=5]["total_montant"].sum()
+    part_weekend = weekend_sum / df_filtered["total_montant"].sum() * 100
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Montant total retiré (K)", f"{total_retrait:,.0f} K")
+    col2.metric("Nombre total d'opérations", f"{total_operations:,.0f}")
     col3.metric("Nombre de GAB", nb_gab)
-    
-    # Graphiques
-    st.subheader("Évolution hebdomadaire des retraits et opérations")
-    fig, ax1 = plt.subplots(figsize=(12, 5))
-    sns.lineplot(data=df_filtered, x="ds", y="total_montant", ax=ax1, label="Montant retiré")
-    ax1.set_ylabel("Montant retiré")
-    ax1.tick_params(axis='x', rotation=45)
-    ax2 = ax1.twinx()
-    sns.lineplot(data=df_filtered, x="ds", y="total_nombre", ax=ax2, color="orange", label="Nombre d'opérations")
-    ax2.set_ylabel("Nombre d'opérations")
-    lines_1, labels_1 = ax1.get_legend_handles_labels()
-    lines_2, labels_2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper left")
-    st.pyplot(fig)
-    
-    # Tableau interactif
+    col4.metric("Montant moyen / semaine", f"{mean_retrait:,.0f}")
+    col5.metric("Écart-type retraits", f"{std_retrait:,.0f}")
+    st.write(f"Part des retraits pendant le week-end : {part_weekend:.2f}%")
+
+    # Graphiques interactifs
+    st.subheader("Évolution hebdomadaire des retraits")
+    fig = px.line(df_filtered, x="ds", y="total_montant", color="lib_gab",
+                  labels={"ds":"Semaine", "total_montant":"Montant retiré"})
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Boxplot des retraits par GAB")
+    fig2 = px.box(df_filtered, x="lib_gab", y="total_montant", points="all",
+                  labels={"lib_gab":"GAB", "total_montant":"Montant retiré"})
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.subheader("Histogramme du nombre de retraits par GAB")
+    ops_per_gab = df_filtered.groupby("lib_gab")["total_nombre"].sum().reset_index()
+    fig3 = px.bar(ops_per_gab, x="lib_gab", y="total_nombre",
+                  labels={"lib_gab":"GAB", "total_nombre":"Nombre d'opérations"})
+    st.plotly_chart(fig3, use_container_width=True)
+
+    # Tableau filtré
     st.subheader("Données filtrées")
     st.dataframe(df_filtered.sort_values("ds", ascending=False))
     st.download_button("Télécharger CSV filtré", df_filtered.to_csv(index=False), "data_filtered.csv", "text/csv")
@@ -128,47 +139,43 @@ if tab == "Tableau de bord analytique":
 # ========================================
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
-    
-    # Sélection du GAB
     gab_options = sorted(list(lstm_models.keys()))
     gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
     gab_selected = str(gab_selected)
-    
-    # Utiliser df_subset pour les données historiques
+
+    # Utiliser df_subset pour données historiques
     if gab_selected not in df_subset["lib_gab"].unique():
         st.warning(f"Aucune donnée historique trouvée pour le GAB {gab_selected}")
     else:
         df_gab = df_subset[df_subset["lib_gab"] == gab_selected].sort_values("ds")
-        
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
         else:
             st.subheader(f"Visualisation des données et prévisions pour {gab_selected}")
-            
-            # Normalisation + prédiction
             scaler = lstm_scalers[gab_selected]
             model = lstm_models[gab_selected]
-            
+
             data = df_gab["total_montant"].values.reshape(-1,1)
             data_scaled = scaler.transform(data)
-            
             pred_scaled = model.predict(data_scaled, verbose=0)
             pred = scaler.inverse_transform(pred_scaled)
-            
+
             # Graphique
-            fig2, ax = plt.subplots(figsize=(12,5))
-            ax.plot(df_gab["ds"], df_gab["total_montant"], label="Montant réel", color="blue")
-            ax.plot(df_gab["ds"], pred.flatten(), label="Montant prédit LSTM", color="red")
-            ax.set_xlabel("Date")
-            ax.set_ylabel("Montant retiré")
-            ax.tick_params(axis='x', rotation=45)
-            ax.legend()
-            st.pyplot(fig2)
-            
-            # Export des prévisions
+            fig_pred = go.Figure()
+            fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=df_gab["total_montant"],
+                                          mode="lines+markers", name="Montant réel"))
+            fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=pred.flatten(),
+                                          mode="lines+markers", name="Montant prédit LSTM"))
+            fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
+            st.plotly_chart(fig_pred, use_container_width=True)
+
+            # Export
             df_pred = pd.DataFrame({
                 "ds": df_gab["ds"],
                 "total_montant_reel": df_gab["total_montant"],
                 "total_montant_pred": pred.flatten()
             })
-            st.download_button("Télécharger prévisions CSV", df_pred.to_csv(index=False), f"pred_{gab_selected}.csv", "text/csv")
+            st.download_button("Télécharger prévisions CSV",
+                               df_pred.to_csv(index=False),
+                               f"pred_{gab_selected}.csv",
+                               "text/csv")
