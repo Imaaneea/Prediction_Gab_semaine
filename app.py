@@ -18,15 +18,14 @@ st.set_page_config(page_title="Dashboard GAB", layout="wide")
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    # Conversion sécurisée de num_gab
-    df["num_gab"] = pd.to_numeric(df["num_gab"], errors="coerce").astype("Int64")
+    df["num_gab"] = df["num_gab"].astype("Int64")
     df["week_day"] = df["ds"].dt.dayofweek
     return df
 
 @st.cache_data
 def load_subset():
     df_subset = pd.read_csv("df_subset.csv", parse_dates=["ds"])
-    df_subset["num_gab"] = pd.to_numeric(df_subset["num_gab"], errors="coerce").astype("Int64")
+    df_subset["num_gab"] = df_subset["num_gab"].astype("Int64")
     return df_subset
 
 df = load_data()
@@ -40,7 +39,7 @@ def load_lstm_models():
     models = {}
     scalers = {}
     for model_file in glob.glob("lstm_gab_*.h5"):
-        gab_id = int(model_file.split("_")[-1].replace(".h5",""))
+        gab_id = model_file.split("_")[-1].replace(".h5","")
         scaler_file = f"scaler_gab_{gab_id}.save"
         try:
             models[gab_id] = load_model(model_file, compile=False)
@@ -96,8 +95,8 @@ if tab == "Tableau de bord analytique":
     if agence != "Toutes":
         df_filtered = df_filtered[df_filtered["agence"] == agence]
     if gab != "Tous":
-        df_filtered = df_filtered[df_filtered["num_gab"] == int(gab)]
-    df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) & 
+        df_filtered = df_filtered[df_filtered["num_gab"] == gab]
+    df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
                               (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
     # =====================
@@ -123,6 +122,7 @@ if tab == "Tableau de bord analytique":
     st.subheader("Répartition des retraits hebdo par région (par année)")
     years = sorted(df_filtered["year"].unique())
     selected_year = st.selectbox("Sélectionner l'année", years, key="year_pie")
+
     df_year = df_filtered[df_filtered["year"] == selected_year]
     df_pie = df_year.groupby("region")["total_montant"].mean().reset_index()
     df_pie.rename(columns={"total_montant":"Montant moyen hebdo"}, inplace=True)
@@ -144,7 +144,7 @@ if tab == "Tableau de bord analytique":
         df_plot = df_filtered[df_filtered["region"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
         title = f"Évolution des retraits - Région {selected_level}"
     else:
-        df_plot = df_filtered[df_filtered["num_gab"] == int(selected_level)].groupby("ds")["total_montant"].sum().reset_index()
+        df_plot = df_filtered[df_filtered["num_gab"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
         title = f"Évolution des retraits - GAB {selected_level}"
 
     fig_line = px.line(df_plot, x="ds", y="total_montant", title=title,
@@ -158,7 +158,7 @@ if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
 
     # Seuls les GAB pour lesquels un modèle et scaler existent
-    gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
+    gab_options = [gab for gab in sorted(df["num_gab"].dropna().unique()) if str(int(gab)) in lstm_models]
 
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
@@ -174,8 +174,9 @@ if tab == "Prévisions LSTM 20 GAB":
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
             # Charger scaler et modèle
-            scaler = lstm_scalers[gab_selected]
-            model = lstm_models[gab_selected]
+            gab_key = str(int(gab_selected))  # correspondance clé LSTM
+            scaler = lstm_scalers[gab_key]
+            model = lstm_models[gab_key]
 
             # Préparer les données
             data = df_gab["total_montant"].values.reshape(-1,1)
@@ -183,19 +184,15 @@ if tab == "Prévisions LSTM 20 GAB":
             pred_scaled = model.predict(data_scaled, verbose=0)
             pred = scaler.inverse_transform(pred_scaled)
 
-                       # Affichage graphique
+            # Affichage graphique
             fig_pred = go.Figure()
             fig_pred.add_trace(go.Scatter(
-                x=df_gab["ds"], 
-                y=df_gab["total_montant"],
-                mode="lines+markers", 
-                name="Montant réel"
+                x=df_gab["ds"], y=df_gab["total_montant"],
+                mode="lines+markers", name="Montant réel"
             ))
             fig_pred.add_trace(go.Scatter(
-                x=df_gab["ds"], 
-                y=pred.flatten(),
-                mode="lines+markers", 
-                name="Montant prédit LSTM"
+                x=df_gab["ds"], y=pred.flatten(),
+                mode="lines+markers", name="Montant prédit LSTM"
             ))
             fig_pred.update_layout(
                 xaxis_title="Date",
@@ -215,4 +212,3 @@ if tab == "Prévisions LSTM 20 GAB":
                 f"pred_{gab_selected}.csv",
                 "text/csv"
             )
-
