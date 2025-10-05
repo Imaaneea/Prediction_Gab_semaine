@@ -204,7 +204,7 @@ if tab == "Prévisions LSTM 20 GAB":
                 sequence_length = 5
                 last_sequence = data_scaled[-sequence_length:].reshape(1, sequence_length, len(features))
 
-                forecast_steps = 4
+                forecast_steps = 12
                 future_preds = []
 
                 for _ in range(forecast_steps):
