@@ -157,48 +157,65 @@ if tab == "Tableau de bord analytique":
 # ========================================
 # Onglet 2 : Prévisions LSTM 20 GAB
 # ========================================
-# Récupérer les données historiques depuis df_subset
-df_gab = df_subset[df_subset["num_gab"] == gab_selected].sort_values("ds")
+if tab == "Prévisions LSTM 20 GAB":
+    st.title("Prévisions LSTM - 20 GAB")
 
-if len(df_gab) < 52:
-    st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
-else:
-    st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
+    # S'assurer que num_gab est string pour matcher avec les modèles
+    df_subset["num_gab"] = df_subset["num_gab"].astype(str)
+    lstm_models_str = {str(k): v for k, v in lstm_models.items()}
+    lstm_scalers_str = {str(k): v for k, v in lstm_scalers.items()}
 
-    # Charger scaler et modèle
-    scaler = lstm_scalers[gab_selected]
-    model = lstm_models[gab_selected]
+    # Seuls les GAB pour lesquels un modèle et scaler existent
+    gab_options = [gab for gab in sorted(df_subset["num_gab"].unique()) if gab in lstm_models_str]
 
-    # Préparer les données
-    data = df_gab["total_montant"].dropna().values.reshape(-1, 1)
-    st.write("Shape des données pour scaler:", data.shape)  # debug
+    if not gab_options:
+        st.warning("Aucun GAB disponible avec modèles LSTM.")
+    else:
+        gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
 
-    # Transformation et prédiction
-    data_scaled = scaler.transform(data)
-    pred_scaled = model.predict(data_scaled, verbose=0)
-    pred = scaler.inverse_transform(pred_scaled)
+        # Récupérer les données historiques depuis df_subset
+        df_gab = df_subset[df_subset["num_gab"] == gab_selected].sort_values("ds")
 
-    # Affichage graphique
-    fig_pred = go.Figure()
-    fig_pred.add_trace(go.Scatter(
-        x=df_gab["ds"], y=df_gab["total_montant"],
-        mode="lines+markers", name="Montant réel"
-    ))
-    fig_pred.add_trace(go.Scatter(
-        x=df_gab["ds"], y=pred.flatten(),
-        mode="lines+markers", name="Montant prédit LSTM"
-    ))
-    fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
-    st.plotly_chart(fig_pred, use_container_width=True)
+        if len(df_gab) < 52:
+            st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
+        else:
+            st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
 
-    # Bouton pour télécharger les prévisions
-    df_pred = pd.DataFrame({
-        "ds": df_gab["ds"],
-        "total_montant_reel": df_gab["total_montant"],
-        "total_montant_pred": pred.flatten()
-    })
-    st.download_button(
-        "Télécharger prévisions CSV",
+            # Charger scaler et modèle
+            scaler = lstm_scalers_str[gab_selected]
+            model = lstm_models_str[gab_selected]
+
+            # Préparer les données
+            data = df_gab["total_montant"].values.reshape(-1, 1)
+            try:
+                data_scaled = scaler.transform(data)
+            except ValueError as e:
+                st.error(f"Erreur lors de la normalisation des données : {e}")
+                st.stop()
+
+            pred_scaled = model.predict(data_scaled, verbose=0)
+            pred = scaler.inverse_transform(pred_scaled)
+
+            # Affichage graphique
+            fig_pred = go.Figure()
+            fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=df_gab["total_montant"],
+                                          mode="lines+markers", name="Montant réel"))
+            fig_pred.add_trace(go.Scatter(x=df_gab["ds"], y=pred.flatten(),
+                                          mode="lines+markers", name="Montant prédit LSTM"))
+            fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré")
+            st.plotly_chart(fig_pred, use_container_width=True)
+
+            # Bouton pour télécharger les prévisions
+            df_pred = pd.DataFrame({
+                "ds": df_gab["ds"],
+                "total_montant_reel": df_gab["total_montant"],
+                "total_montant_pred": pred.flatten()
+            })
+            st.download_button("Télécharger prévisions CSV",
+                               df_pred.to_csv(index=False),
+                               f"pred_{gab_selected}.csv",
+                               "text/csv")
+
         df_pred.to_csv(index=False),
         f"pred_{gab_selected}.csv",
         "text/csv"
