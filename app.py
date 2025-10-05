@@ -18,14 +18,14 @@ st.set_page_config(page_title="Dashboard GAB", layout="wide")
 @st.cache_data
 def load_data():
     df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
-    df["lib_gab"] = df["lib_gab"].astype(str)
+    df["lib_gab"] = df["lib_gab"].astype(str).str.strip()
     df["week_day"] = df["ds"].dt.dayofweek
     return df
 
 @st.cache_data
 def load_subset():
     df_subset = pd.read_csv("df_subset.csv", parse_dates=["ds"])
-    df_subset["lib_gab"] = df_subset["lib_gab"].astype(str)
+    df_subset["lib_gab"] = df_subset["lib_gab"].astype(str).str.strip()
     return df_subset
 
 df = load_data()
@@ -38,24 +38,20 @@ df_subset = load_subset()
 def load_lstm_models():
     models = {}
     scalers = {}
-
-    model_files = glob.glob("lstm_gab_*.h5")
-    st.write("Fichiers modèles détectés :", model_files)
-
-    for model_file in model_files:
-        gab_id = model_file.replace("lstm_gab_", "").replace(".h5", "")
+    for model_file in glob.glob("lstm_gab_*.h5"):
+        gab_id = model_file.split("_")[-1].replace(".h5","").strip()
         scaler_file = f"scaler_gab_{gab_id}.save"
-
         try:
             models[gab_id] = load_model(model_file, compile=False)
             scalers[gab_id] = joblib.load(scaler_file)
         except Exception as e:
             st.warning(f"Impossible de charger LSTM pour {gab_id}: {e}")
-
-    st.write("GAB disponibles avec modèles :", list(models.keys()))
     return models, scalers
 
 lstm_models, lstm_scalers = load_lstm_models()
+# Normaliser les clés pour éviter problème de format
+lstm_models = {str(k).strip(): v for k,v in lstm_models.items()}
+lstm_scalers = {str(k).strip(): v for k,v in lstm_scalers.items()}
 
 # ========================================
 # Onglets
