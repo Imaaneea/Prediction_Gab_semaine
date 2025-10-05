@@ -5,7 +5,6 @@ import glob
 from tensorflow.keras.models import load_model
 import joblib
 import numpy as np
-import plotly.express as px
 
 # ========================================
 # Configuration de la page
@@ -48,7 +47,7 @@ lstm_models, lstm_scalers = load_lstm_models()
 # ========================================
 # Onglets
 # ========================================
-tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB", "Réseau & Supervision"])
+tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
 
 # ========================================
 # Onglet 1 : Tableau de bord analytique
@@ -97,16 +96,13 @@ if tab == "Tableau de bord analytique":
     nombre_gab_actifs = df_filtered["num_gab"].nunique()
     ecart_type_retraits = df_filtered["total_montant"].std()
     part_weekend = df_filtered[df_filtered["week_day"] >= 5]["total_montant"].sum() / df_filtered["total_montant"].sum() * 100
-    montant_total_retraits = df_filtered["total_montant"].sum()
 
-    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+    col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Volume moyen hebdo", f"{volume_moyen_semaine/1000:,.0f} KDH")
-    col2.metric("Montant total retraits", f"{montant_total_retraits/1000:,.0f} KDH")
-    col3.metric("Nombre total opérations", f"{nombre_operations:,.0f}")
-    col4.metric("Nombre de GAB actifs", f"{nombre_gab_actifs}")
-    col5.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
-    col6.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
-    col7.metric("Nb semaines", f"{df_filtered['week'].nunique()}")
+    col2.metric("Nombre total d'opérations", f"{nombre_operations/1000:,.0f} KDH")
+    col3.metric("Nombre de GAB actifs", f"{nombre_gab_actifs}")
+    col4.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
+    col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
 
     # Camembert
     st.subheader("Répartition des retraits hebdo par région (par année)")
@@ -152,20 +148,22 @@ if tab == "Tableau de bord analytique":
 # ========================================
 if tab == "Prévisions LSTM 20 GAB":
     st.title("Prévisions LSTM - 20 GAB")
-    df_gabs = pd.read_csv("df_gabs.csv")  # uniquement pour prédiction
 
-    gab_options = [gab for gab in sorted(df_gabs["num_gab"].unique()) if gab in lstm_models]
+    # GAB disponibles avec modèles
+    gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
     if not gab_options:
         st.warning("Aucun GAB disponible avec modèles LSTM.")
     else:
         gab_selected = st.selectbox("Sélectionner un GAB", gab_options)
-        df_gab = df_gabs[df_gabs["num_gab"] == gab_selected].sort_values("ds")
+        df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
 
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
         else:
             st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
+
             try:
+                # Préparation
                 n_steps = 4
                 scaler = lstm_scalers[gab_selected]
                 model = lstm_models[gab_selected]
@@ -176,28 +174,35 @@ if tab == "Prévisions LSTM 20 GAB":
                     X.append(y_scaled[i:i+n_steps])
                 X = np.array(X).reshape(-1, n_steps, 1)
 
+                # Prédictions sur toutes les semaines
                 y_pred_scaled = model.predict(X, verbose=0)
                 y_pred = scaler.inverse_transform(y_pred_scaled)
+
                 y_true = df_gab['y'].values[n_steps:]
                 dates = df_gab['ds'][n_steps:]
 
+                # Prévisions futures (4 semaines)
                 last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
                 future_preds = []
                 future_steps = 6
                 future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(future_steps)]
+
                 for _ in range(future_steps):
                     pred_scaled = model.predict(last_sequence, verbose=0)
                     pred = scaler.inverse_transform(pred_scaled)[0, 0]
-                    future_preds.append(pred/1000)
+                    future_preds.append(pred/1000)  # KDH
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
+                # Graphique final
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Montant réel (KDH)"))
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten()/1000, mode="lines+markers", name="Prédiction LSTM (KDH)"))
                 fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name="Prévisions futures (KDH)"))
+
                 fig_pred.update_layout(xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
+                # Téléchargement CSV
                 df_csv = pd.DataFrame({
                     "ds": list(dates) + future_dates,
                     "y_true_kdh": list(y_true/1000) + [None]*future_steps,
@@ -212,69 +217,3 @@ if tab == "Prévisions LSTM 20 GAB":
 
             except Exception as e:
                 st.error(f"Erreur lors de la génération des prévisions: {e}")
-
-# ========================================
-# Onglet 3 : Réseau & Supervision
-# ========================================
-if tab == "Réseau & Supervision":
-    st.title("Réseau & Supervision - Carte et KPIs")
-
-    st.sidebar.header("Filtres Réseau")
-    regions = df["region"].dropna().unique()
-    region_filter = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()))
-    if region_filter != "Toutes":
-        agences = df[df["region"] == region_filter]["agence"].dropna().unique()
-    else:
-        agences = df["agence"].dropna().unique()
-    agence_filter = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()))
-
-    # Filtrer dataframe
-    df_net = df.copy()
-    if region_filter != "Toutes":
-        df_net = df_net[df_net["region"] == region_filter]
-    if agence_filter != "Toutes":
-        df_net = df_net[df_net["agence"] == agence_filter]
-
-    seuil_critique = 1_000_000
-    seuil_alerte = 2_000_000
-    df_gab_stats = df_net.groupby("num_gab")[["total_montant","total_nombre"]].mean().reset_index()
-    
-    def statut_gab(x):
-        if x < seuil_critique:
-            return "Critique"
-        elif x < seuil_alerte:
-            return "Alerte"
-        else:
-            return "Normal"
-    
-    df_gab_stats["statut"] = df_gab_stats["total_montant"].apply(statut_gab)
-
-    # KPIs réseau
-    st.subheader("KPIs réseau (vue globale)")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Montant total (somme moy.)", f"{df_gab_stats['total_montant'].sum()/1000:,.0f} KDH")
-    col2.metric("Nombre GAB (réseau)", f"{df_gab_stats['num_gab'].nunique()}")
-    col3.metric("Disponibilité (proxy)", f"{(df_gab_stats['statut'] != 'Critique').mean()*100:.0f} %")
-
-    # Fiches réseau (tableau)
-    st.subheader("Fiches réseau (aperçu)")
-    st.dataframe(df_gab_stats.sort_values("statut"))
-
-    # Carte interactive
-    st.subheader("Carte des GAB")
-    if "lat" in df_net.columns and "lon" in df_net.columns:
-        fig_map = px.scatter_mapbox(
-            df_gab_stats.merge(df_net[["num_gab","lat","lon"]].drop_duplicates(), on="num_gab"),
-            lat="lat",
-            lon="lon",
-            color="statut",
-            size="total_montant",
-            hover_data=["num_gab","total_montant","total_nombre"],
-            color_discrete_map={"Normal":"green","Alerte":"orange","Critique":"red"},
-            zoom=5,
-            height=600
-        )
-        fig_map.update_layout(mapbox_style="open-street-map")
-        st.plotly_chart(fig_map, use_container_width=True)
-    else:
-        st.info("Les coordonnées lat/lon ne sont pas disponibles pour afficher la carte.")
