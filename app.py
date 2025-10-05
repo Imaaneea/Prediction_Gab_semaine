@@ -184,10 +184,12 @@ if tab == "Prévisions LSTM 20 GAB":
             model = lstm_models[gab_selected]
 
             # Préparer les données
-            data = df_gab["total_montant"].values.reshape(-1,1)
-            data_scaled = scaler.transform(data)
-            pred_scaled = model.predict(data_scaled, verbose=0)
-            pred = scaler.inverse_transform(pred_scaled)
+data = df_gab["total_montant"].dropna().values.reshape(-1, 1)
+st.write("Shape des données pour scaler:", data.shape)  # debug
+data_scaled = scaler.transform(data)
+pred_scaled = model.predict(data_scaled, verbose=0)
+pred = scaler.inverse_transform(pred_scaled)
+
 
             # Affichage graphique
             fig_pred = go.Figure()
