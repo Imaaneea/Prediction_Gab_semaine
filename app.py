@@ -50,11 +50,7 @@ def load_data():
         return pd.DataFrame()
 
     # Conversion date
-    if "ds" in df.columns:
-        df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
-    else:
-        st.error("La colonne 'ds' est absente du CSV.")
-        return pd.DataFrame()
+    if "ds" in df.columns: df["ds"] = pd.to_datetime(df["ds"], errors="coerce") # invalid parsing -> NaT else: st.error("La colonne 'ds' est absente du CSV.") return pd.DataFrame()
 
     if "num_gab" in df.columns:
         df["num_gab"] = df["num_gab"].astype(str)
