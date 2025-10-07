@@ -38,7 +38,7 @@ def load_data():
         df = pd.read_csv(
             "df_weekly_clean.csv",
             encoding="utf-8-sig",  # <-- gère le BOM
-            sep=";",
+            sep=",",
             on_bad_lines="skip"
         )
     except Exception as e:
