@@ -9,6 +9,7 @@ import numpy as np
 # ========================================
 # Configuration page & style
 # ========================================
+st.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.set_page_config(page_title="CashGAB : Dashboard GAB", layout="wide")
 
 # CSS pour un design moderne (clair / bleu)
