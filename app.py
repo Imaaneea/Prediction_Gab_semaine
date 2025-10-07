@@ -34,12 +34,7 @@ st.markdown(
 @st.cache_data
 def load_data():
     try:
-        df = pd.read_csv(
-            "df_weekly_clean.csv",
-            encoding="utf-8-sig",
-            sep=",",
-            on_bad_lines="skip"
-        )
+        df = pd.read_csv("df_weekly_clean.csv", encoding="utf-8-sig", sep=",", on_bad_lines="skip")
         df.columns = df.columns.str.strip()
     except Exception as e:
         st.error(f"Erreur lors de la lecture du CSV : {e}")
@@ -190,7 +185,7 @@ if tab == "Tableau de bord analytique":
         </div>
     """, unsafe_allow_html=True)
 
-    # --- Alertes récentes (bar chart par région) ---
+    # --- Alertes récentes ---
     st.markdown("### Alertes récentes (dernier état des GABs)")
     if not df_latest.empty:
         alert_counts_region = df_latest.groupby(["region","status"])["num_gab"].count().reset_index()
@@ -230,12 +225,11 @@ if tab == "Tableau de bord analytique":
     st.markdown("### Fiches réseau (aperçu des GABs)")
     if not df_latest.empty:
         def status_label(val):
-            if val=="Critique":
-                return "badge-crit"
-            elif val=="Alerte":
-                return "badge-alert"
-            else:
-                return "badge-norm"
+            if val=="Critique": return "badge-crit"
+            elif val=="Alerte": return "badge-alert"
+            else: return "badge-norm"
+
+        df_latest["status_html"] = df_latest["status"].apply(lambda x: f'<span class="{status_label(x)}">{x}</span>')
 
         cols_to_show = ["num_gab"]
         if "agence" in df_latest.columns:
@@ -243,29 +237,25 @@ if tab == "Tableau de bord analytique":
         if "region" in df_latest.columns:
             cols_to_show.append("region")
         cols_to_show.append("total_montant")
+        cols_to_show.append("status_html")
 
         display_df = df_latest[cols_to_show].copy().reset_index(drop=True)
-        display_df["status_html"] = df_latest["status"].apply(lambda x: f'<span class="{status_label(x)}">{x}</span>')
-
         st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
         for _, row in display_df.iterrows():
-            n_cols = 2
-            if "agence" in row.index: n_cols+=1
-            if "region" in row.index: n_cols+=1
-            n_cols+=1
+            n_cols = len(row)
             cols = st.columns(n_cols)
-            col_idx = 0
-            cols[col_idx].write(row["num_gab"]); col_idx+=1
-            if "agence" in row.index:
-                cols[col_idx].write(row.get("agence","-")); col_idx+=1
-            if "region" in row.index:
-                cols[col_idx].write(row.get("region","-")); col_idx+=1
-            cols[col_idx].write(f"{row['total_montant']/1000:,.0f} K MAD"); col_idx+=1
-            cols[col_idx].markdown(row["status_html"], unsafe_allow_html=True)
+            for col_idx, val in enumerate(row):
+                if col_idx == n_cols-1:  # status_html
+                    cols[col_idx].markdown(val, unsafe_allow_html=True)
+                elif isinstance(val, (int,float)):
+                    cols[col_idx].write(f"{val/1000:,.0f} K MAD")
+                else:
+                    cols[col_idx].write(val)
+
     else:
         st.info("Aucune fiche réseau disponible pour la sélection.")
 
-    # --- Répartition régionale (bar chart) ---
+    # --- Répartition régionale ---
     st.markdown("### Répartition régionale & évolution")
     if not df_filtered.empty:
         df_region_avg = df_filtered.groupby("region")["total_montant"].mean().reset_index().sort_values("total_montant", ascending=False)
@@ -308,10 +298,7 @@ if tab == "Prévisions LSTM 20 GAB":
                 model = lstm_models[gab_selected]
 
                 y_scaled = scaler.transform(df_gab[['y']].values)
-                X = []
-                for i in range(len(y_scaled) - n_steps):
-                    X.append(y_scaled[i:i+n_steps])
-                X = np.array(X).reshape(-1, n_steps, 1)
+                X = np.array([y_scaled[i:i+n_steps] for i in range(len(y_scaled)-n_steps)]).reshape(-1, n_steps, 1)
 
                 y_pred_scaled = model.predict(X, verbose=0)
                 y_pred = scaler.inverse_transform(y_pred_scaled)
