@@ -247,18 +247,15 @@ if tab == "Tableau de bord analytique":
     st.title("CashGAB — Tableau de bord analytique")
     st.markdown("Vue d’ensemble du réseau et KPIs interactifs")
 
+    # KPI principaux
     montant_total = df_filtered["total_montant"].sum() if "total_montant" in df_filtered.columns else 0
     nombre_operations = df_filtered["total_nombre"].sum() if "total_nombre" in df_filtered.columns else 0
     nb_gabs = df_filtered["num_gab"].nunique() if "num_gab" in df_filtered.columns else 0
 
-    # --- Seuil critique dynamique ---
+    # Seuil critique
     df_avg_gab = df_filtered.groupby("num_gab")["total_montant"].mean().to_dict()
-    user_seuil = st.sidebar.number_input(
-        "Seuil critique personnalisé (MAD, facultatif)", 
-        value=0, step=10000,
-        help="Si >0, ce seuil remplacera la moyenne historique pour tous les GAB"
-    )
-
+    user_seuil = st.sidebar.number_input("Seuil critique personnalisé (MAD, facultatif)", value=0, step=10000,
+                                         help="Si >0, ce seuil remplacera la moyenne historique pour tous les GAB")
     def get_seuil(gab_id):
         return user_seuil if user_seuil > 0 else df_avg_gab.get(gab_id, 100_000)
 
@@ -276,85 +273,65 @@ if tab == "Tableau de bord analytique":
 
     df_latest["status"] = df_latest.apply(classify_gab, axis=1)
 
-    # --- KPI alertes ---
+    # KPI cards
     nb_critique = df_latest[df_latest["status"]=="Critique"]["num_gab"].nunique()
     nb_alerte = df_latest[df_latest["status"]=="Alerte"]["num_gab"].nunique()
-    nb_normal = df_latest[df_latest["status"]=="Normal"]["num_gab"].nunique()
     dispo_proxy = (df_latest.shape[0] - nb_critique) / df_latest.shape[0] * 100 if not df_latest.empty else 100.0
 
-    k1, k2, k3, k4 = st.columns([2,2,2,2])
-    k1.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">GAB Critique</div>
-            <div class="kpi-value">{nb_critique}</div>
-        </div>
-    """, unsafe_allow_html=True)
-    k2.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">GAB Alerte</div>
-            <div class="kpi-value">{nb_alerte}</div>
-        </div>
-    """, unsafe_allow_html=True)
-    k3.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">GAB Normal</div>
-            <div class="kpi-value">{nb_normal}</div>
-        </div>
-    """, unsafe_allow_html=True)
-    k4.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Disponibilité (proxy)</div>
-            <div class="kpi-value">{dispo_proxy:.0f}%</div>
-        </div>
-    """, unsafe_allow_html=True)
+    k1, k2, k3, k4, k5, k6 = st.columns([2,2,2,2,2,2])
+    k1.markdown(f"<div class='kpi-card'><div class='kpi-title'>Montant total retraits</div><div class='kpi-value'>{montant_total/1_000_000:,.2f} M MAD</div></div>", unsafe_allow_html=True)
+    k2.markdown(f"<div class='kpi-card'><div class='kpi-title'>Nombre opérations</div><div class='kpi-value'>{nombre_operations:,.0f}</div></div>", unsafe_allow_html=True)
+    k3.markdown(f"<div class='kpi-card'><div class='kpi-title'>Nombre GAB</div><div class='kpi-value'>{nb_gabs}</div></div>", unsafe_allow_html=True)
+    k4.markdown(f"<div class='kpi-card'><div class='kpi-title'>Disponibilité proxy</div><div class='kpi-value'>{dispo_proxy:.0f}%</div></div>", unsafe_allow_html=True)
+    k5.markdown(f"<div class='kpi-card'><div class='kpi-title'>GAB Critiques</div><div class='kpi-value'>{nb_critique}</div></div>", unsafe_allow_html=True)
+    k6.markdown(f"<div class='kpi-card'><div class='kpi-title'>GAB Alerte</div><div class='kpi-value'>{nb_alerte}</div></div>", unsafe_allow_html=True)
 
-    # --- Alertes récentes par région ---
+    # Alertes récentes
     st.markdown("### Alertes récentes (dernier état des GABs)")
     if not df_latest.empty:
         alert_counts_region = df_latest.groupby(["region","status"])["num_gab"].count().reset_index()
         fig_alert = go.Figure()
         for status, color in zip(["Critique","Alerte","Normal"], ['#d32f2f','#f9a825','#2e7d32']):
             df_s = alert_counts_region[alert_counts_region["status"]==status]
-            fig_alert.add_trace(go.Bar(
-                x=df_s["region"], y=df_s["num_gab"],
-                name=status, marker_color=color
-            ))
-        fig_alert.update_layout(barmode='stack', title="Répartition des GAB par statut et région",
-                                xaxis_title="Région", yaxis_title="Nombre de GAB")
+            fig_alert.add_trace(go.Bar(x=df_s["region"], y=df_s["num_gab"], name=status, marker_color=color))
+        fig_alert.update_layout(barmode='stack', title="Répartition des GAB par statut et région", xaxis_title="Région", yaxis_title="Nombre de GAB")
         st.plotly_chart(fig_alert, use_container_width=True)
-    else:
-        st.info("Aucune alerte disponible pour la période sélectionnée.")
 
-    # --- Tableau statuts GAB ---
-    st.markdown("### Détail des GAB par statut")
+    # Evolution des retraits
+    st.markdown("### Evolution des retraits")
+    if not df_filtered.empty:
+        df_evol = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
+        fig_evol = go.Figure()
+        fig_evol.add_trace(go.Scatter(x=df_evol["ds"], y=df_evol["total_montant"]/1000, mode="lines+markers", name="Total retraits"))
+        fig_evol.update_layout(title="Evolution hebdomadaire des retraits (K MAD)", xaxis_title="Date", yaxis_title="Montant retiré (K MAD)")
+        st.plotly_chart(fig_evol, use_container_width=True)
+
+    # Répartition régionale
+    st.markdown("### Répartition moyenne par région")
+    if not df_filtered.empty:
+        df_region_avg = df_filtered.groupby("region")["total_montant"].mean().reset_index().sort_values("total_montant", ascending=False)
+        fig_region = go.Figure(go.Bar(x=df_region_avg["region"], y=df_region_avg["total_montant"]/1000, text=(df_region_avg["total_montant"]/1000).round(0), textposition="auto", marker_color='lightskyblue'))
+        fig_region.update_layout(title="Montant moyen hebdo par région (K MAD)", xaxis_title="Région", yaxis_title="Montant moyen")
+        st.plotly_chart(fig_region, use_container_width=True)
+
+    # Tableau détaillé GAB
+    st.markdown("### Fiches réseau (statuts GAB)")
     if not df_latest.empty:
         def status_label(val):
-            if val=="Critique":
-                return "badge-crit"
-            elif val=="Alerte":
-                return "badge-alert"
-            else:
-                return "badge-norm"
+            if val=="Critique": return "badge-crit"
+            elif val=="Alerte": return "badge-alert"
+            else: return "badge-norm"
 
-        display_cols = ["num_gab"]
-        if "agence" in df_latest.columns:
-            display_cols.append("agence")
-        if "region" in df_latest.columns:
-            display_cols.append("region")
-        display_cols.append("total_montant")
-        df_display = df_latest[display_cols].copy().reset_index(drop=True)
-        df_display["status_html"] = df_latest["status"].apply(lambda x: f'<span class="{status_label(x)}">{x}</span>')
-
-        for _, row in df_display.iterrows():
-            cols_count = len(display_cols) + 1
-            cols = st.columns(cols_count)
-            idx = 0
-            cols[idx].write(row["num_gab"]); idx+=1
-            if "agence" in row.index: cols[idx].write(row.get("agence","-")); idx+=1
-            if "region" in row.index: cols[idx].write(row.get("region","-")); idx+=1
-            cols[idx].write(f"{row['total_montant']/1000:,.0f} K MAD"); idx+=1
-            cols[idx].markdown(row["status_html"], unsafe_allow_html=True)
-
+        display_df = df_latest.copy()
+        display_df["status_html"] = display_df["status"].apply(lambda x: f'<span class="{status_label(x)}">{x}</span>')
+        display_cols = ["num_gab","agence","region","total_montant","status_html"]
+        for _, row in display_df[display_cols].iterrows():
+            cols = st.columns(5)
+            cols[0].write(row["num_gab"])
+            cols[1].write(row.get("agence","-"))
+            cols[2].write(row.get("region","-"))
+            cols[3].write(f"{row['total_montant']/1000:,.0f} K MAD")
+            cols[4].markdown(row["status_html"], unsafe_allow_html=True)
 
 # ========================================
 # Prévisions LSTM
