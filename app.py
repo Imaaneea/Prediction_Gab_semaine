@@ -30,15 +30,13 @@ st.markdown("""
 # Charger CSV
 # ========================================
 @st.cache_data
-def load_data_safe(file_path_or_buffer):
+def load_data_safe(file_path="df_weekly_clean.csv"):
     try:
-        # support chemin ou fichier uploadé
-        if isinstance(file_path_or_buffer, str):
-            with open(file_path_or_buffer, "rb") as f:
-                content = f.read()
-        else:  # fichier uploadé
-            content = file_path_or_buffer.read()
-        content = content.decode("utf-8", errors="ignore").lstrip('\ufeff').lstrip('´╗┐')
+        with open(file_path, "rb") as f:
+            content = f.read()
+        content = content.decode("utf-8", errors="ignore")
+        # Supprimer BOM ou caractères invisibles
+        content = content.lstrip('\ufeff').lstrip('´╗┐')
         df = pd.read_csv(StringIO(content), sep=",", on_bad_lines="skip")
         df.columns = df.columns.str.strip()
     except Exception as e:
@@ -49,10 +47,12 @@ def load_data_safe(file_path_or_buffer):
         st.error("Le CSV est vide ou mal formaté.")
         return pd.DataFrame()
 
-    if "ds" not in df.columns:
+    # Colonnes essentielles
+    if "ds" in df.columns:
+        df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    else:
         st.error("La colonne 'ds' est absente du CSV.")
         return pd.DataFrame()
-    df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
 
     if "num_gab" in df.columns:
         df["num_gab"] = df["num_gab"].astype(str)
@@ -65,13 +65,7 @@ def load_data_safe(file_path_or_buffer):
     df["year"] = df["ds"].dt.year
 
     return df
-
-# Option upload CSV pour Git / Streamlit Cloud
-uploaded_file = st.sidebar.file_uploader("Charger CSV df_weekly_clean.csv", type=["csv"])
-if uploaded_file:
-    df = load_data_safe(uploaded_file)
-else:
-    df = load_data_safe("df_weekly_clean.csv")  # fallback local
+    df = load_data_safe()
 if df.empty:
     st.stop()
 
