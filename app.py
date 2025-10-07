@@ -35,11 +35,13 @@ st.markdown(
 def load_data():
     try:
         df = pd.read_csv(
-    "df_weekly_clean.csv",
-    encoding="utf-8-sig",  # gère le BOM
-    sep=",",
-    on_bad_lines="skip"
-)
+            "df_weekly_clean.csv",
+            encoding="utf-8-sig",  # gère le BOM
+            sep=",",
+            on_bad_lines="skip"
+        )
+        # =====> Corrige le KeyError en nettoyant les noms de colonnes
+        df.columns = df.columns.str.strip()
     except Exception as e:
         st.error(f"Erreur lors de la lecture du CSV : {e}")
         return pd.DataFrame()
@@ -49,7 +51,12 @@ def load_data():
         return pd.DataFrame()
 
     # Conversion date
-    if "ds" in df.columns: df["ds"] = pd.to_datetime(df["ds"], errors="coerce") # invalid parsing -> NaT else: st.error("La colonne 'ds' est absente du CSV.") return pd.DataFrame()
+    if "ds" in df.columns: 
+        df["ds"] = pd.to_datetime(df["ds"], errors="coerce")  # invalid parsing -> NaT
+    else:
+        st.error("La colonne 'ds' est absente du CSV.")
+        return pd.DataFrame()
+
     if "num_gab" in df.columns:
         df["num_gab"] = df["num_gab"].astype(str)
 
