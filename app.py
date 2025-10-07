@@ -168,7 +168,7 @@ if tab == "Tableau de bord analytique":
         </div>
     """, unsafe_allow_html=True)
 
-    # --- Fiches réseau avec statut (nouvelle version) ---
+    # --- Fiches réseau avec statut (corrigé) ---
     st.markdown("### Fiches réseau (aperçu des GABs)")
     if not df_latest.empty:
 
@@ -200,6 +200,7 @@ if tab == "Tableau de bord analytique":
                 n_cols += 1
             if "region" in row.index:
                 n_cols += 1
+            n_cols += 1  # pour le statut
             cols = st.columns(n_cols)
             col_idx = 0
             cols[col_idx].write(row["num_gab"])
