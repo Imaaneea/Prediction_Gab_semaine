@@ -90,7 +90,7 @@ lstm_models, lstm_scalers = load_lstm_models()
 st.sidebar.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.sidebar.title("CashGAB")
 st.sidebar.markdown("Solution de gestion proactive des GABs")
-tab = st.sidebar.radio(["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
+tab = st.sidebar.radio(" ",["Tableau de bord analytique", "Prévisions GAB"])
 
 # Filters
 regions = df["region"].dropna().unique() if "region" in df.columns else []
