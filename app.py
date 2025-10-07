@@ -9,7 +9,6 @@ import numpy as np
 # ========================================
 # Configuration page & style
 # ========================================
-st.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.set_page_config(page_title="CashGAB : Dashboard GAB", layout="wide")
 
 # CSS pour un design moderne (clair / bleu)
@@ -103,6 +102,7 @@ lstm_models, lstm_scalers = load_lstm_models()
 # ========================================
 # Sidebar & Navigation
 # ========================================
+st.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.sidebar.title("CashGAB")
 st.sidebar.markdown("Solution de gestion proactive du cash")
 tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
