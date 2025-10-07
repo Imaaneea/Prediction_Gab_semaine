@@ -120,6 +120,14 @@ if agence_filter != "Toutes":
 df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) & (df_filtered["ds"] <= pd.to_datetime(date_fin))]
 
 # ========================================
+# Définition seuil critique + df_latest
+# ========================================
+st.sidebar.markdown("---")
+seuil_critique = st.sidebar.number_input("Seuil critique (MAD)", value=100000, step=10000)
+
+df_latest = df_filtered.loc[df_filtered.groupby('num_gab')['ds'].idxmax()].copy() if ("num_gab" in df_filtered.columns and not df_filtered.empty) else pd.DataFrame()
+
+# ========================================
 # Tableau de bord analytique
 # ========================================
 if tab == "Tableau de bord analytique":
@@ -131,49 +139,43 @@ if tab == "Tableau de bord analytique":
     nb_gabs = df_filtered["num_gab"].nunique() if "num_gab" in df_filtered.columns else 0
 
     # --- Camembert alertes récentes ---
-st.markdown("### Alertes récentes (dernier état des GABs)")
+    st.markdown("### Alertes récentes (dernier état des GABs)")
+    if not df_latest.empty:
+        df_latest["status"] = df_latest["total_montant"].apply(
+            lambda x: "Critique" if x < seuil_critique else ("Alerte" if x < 2*seuil_critique else "Normal")
+        )
+        alert_counts = df_latest["status"].value_counts()
+        fig_alert = go.Figure(go.Pie(
+            labels=alert_counts.index,
+            values=alert_counts.values,
+            hole=0.4,
+            marker=dict(colors=['#d32f2f','#f9a825','#2e7d32'])
+        ))
+        fig_alert.update_layout(title="Répartition des GAB par statut")
+        st.plotly_chart(fig_alert, use_container_width=True)
+    else:
+        st.info("Aucune alerte disponible pour la période sélectionnée.")
 
-if not df_latest.empty:
-    df_latest["status"] = df_latest["total_montant"].apply(
-        lambda x: "Critique" if x < seuil_critique else ("Alerte" if x < 2*seuil_critique else "Normal")
-    )
-    alert_counts = df_latest["status"].value_counts()
-    fig_alert = go.Figure(go.Pie(
-        labels=alert_counts.index,
-        values=alert_counts.values,
-        hole=0.4,
-        marker=dict(colors=['#d32f2f','#f9a825','#2e7d32'])
-    ))
-    fig_alert.update_layout(title="Répartition des GAB par statut")
-    st.plotly_chart(fig_alert, use_container_width=True)
-else:
-    st.info("Aucune alerte disponible pour la période sélectionnée.")
+    # --- Evolution des retraits ---
+    st.markdown("### Evolution des retraits (analyse détaillée)")
+    if not df_filtered.empty:
+        df_evol = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
+        fig_evol = go.Figure()
+        fig_evol.add_trace(go.Scatter(
+            x=df_evol["ds"], y=df_evol["total_montant"]/1000,
+            mode="lines+markers",
+            name="Total retraits hebdomadaire"
+        ))
+        fig_evol.update_layout(
+            title="Evolution hebdomadaire des retraits (K MAD)",
+            xaxis_title="Date",
+            yaxis_title="Montant retiré (K MAD)"
+        )
+        st.plotly_chart(fig_evol, use_container_width=True)
+    else:
+        st.info("Pas de données pour l'évolution des retraits sur la période sélectionnée.")
 
-# --- Evolution des retraits ---
-st.markdown("### Evolution des retraits (analyse détaillée)")
-
-if not df_filtered.empty:
-    df_evol = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
-    fig_evol = go.Figure()
-    fig_evol.add_trace(go.Scatter(
-        x=df_evol["ds"], y=df_evol["total_montant"]/1000,
-        mode="lines+markers",
-        name="Total retraits hebdomadaire"
-    ))
-    fig_evol.update_layout(
-        title="Evolution hebdomadaire des retraits (K MAD)",
-        xaxis_title="Date",
-        yaxis_title="Montant retiré (K MAD)"
-    )
-    st.plotly_chart(fig_evol, use_container_width=True)
-else:
-    st.info("Pas de données pour l'évolution des retraits sur la période sélectionnée.")
-
-
-    st.sidebar.markdown("---")
-    seuil_critique = st.sidebar.number_input("Seuil critique (MAD)", value=100000, step=10000)
-
-    df_latest = df_filtered.loc[df_filtered.groupby('num_gab')['ds'].idxmax()].copy() if ("num_gab" in df_filtered.columns and not df_filtered.empty) else pd.DataFrame()
+    # --- KPI cards ---
     nb_critique = df_latest[df_latest["total_montant"] < seuil_critique]["num_gab"].nunique() if not df_latest.empty else 0
     nb_alerte = df_latest[(df_latest["total_montant"] >= seuil_critique) & (df_latest["total_montant"] < 2*seuil_critique)]["num_gab"].nunique() if not df_latest.empty else 0
     dispo_proxy = (df_latest.shape[0] - nb_critique) / df_latest.shape[0] * 100 if not df_latest.empty else 100.0
@@ -208,10 +210,9 @@ else:
         </div>
     """, unsafe_allow_html=True)
 
-    # --- Fiches réseau avec statut (corrigé) ---
+    # --- Fiches réseau ---
     st.markdown("### Fiches réseau (aperçu des GABs)")
     if not df_latest.empty:
-
         def status_label(val):
             if val < seuil_critique:
                 return ("Critique", "badge-crit")
@@ -220,7 +221,6 @@ else:
             else:
                 return ("Normal", "badge-norm")
 
-        # Colonnes à afficher
         cols_to_show = ["num_gab"]
         if "agence" in df_latest.columns:
             cols_to_show.append("agence")
@@ -233,7 +233,6 @@ else:
 
         st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
 
-        # Affichage ligne par ligne
         for _, row in display_df.iterrows():
             n_cols = 2  # num_gab + total_montant
             if "agence" in row.index:
