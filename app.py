@@ -32,21 +32,33 @@ st.markdown(
 # Fonction pour charger le CSV proprement
 # ========================================
 @st.cache_data
-def load_data(file_path="df_weekly_clean.csv"):
+def load_data_safe(file_path="df_weekly_clean.csv"):
     try:
-        with open(file_path, "r", encoding="utf-8-sig") as f:
+        # On lit le fichier en bytes pour éliminer le BOM
+        with open(file_path, "rb") as f:
             content = f.read()
-        # On écrit dans un buffer temporaire pour pandas
+        # On décode en utf-8-sig pour enlever le BOM
+        content = content.decode("utf-8-sig")
         from io import StringIO
         df = pd.read_csv(StringIO(content))
-        df.columns = df.columns.str.strip()
+        df.columns = df.columns.str.strip()  # enlever les espaces éventuels
     except Exception as e:
-        st.error(f"Erreur lors de la lecture du CSV : {e}")
+        print(f"Erreur CSV: {e}")
+        return pd.DataFrame()
+
+    if df.empty:
+        print("Le CSV est vide")
         return pd.DataFrame()
     
-    if df.empty:
-        st.error("Le fichier CSV est vide.")
-        return pd.DataFrame()
+    # Colonnes essentielles
+    if "ds" in df.columns:
+        df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    if "num_gab" in df.columns:
+        df["num_gab"] = df["num_gab"].astype(str)
+    if "y" not in df.columns and "total_montant" in df.columns:
+        df["y"] = df["total_montant"]
+
+    return df
     
     if "ds" in df.columns:
         df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
