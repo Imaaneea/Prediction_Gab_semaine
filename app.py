@@ -130,6 +130,46 @@ if tab == "Tableau de bord analytique":
     nombre_operations = df_filtered["total_nombre"].sum() if "total_nombre" in df_filtered.columns else 0
     nb_gabs = df_filtered["num_gab"].nunique() if "num_gab" in df_filtered.columns else 0
 
+    # --- Camembert alertes récentes ---
+st.markdown("### Alertes récentes (dernier état des GABs)")
+
+if not df_latest.empty:
+    df_latest["status"] = df_latest["total_montant"].apply(
+        lambda x: "Critique" if x < seuil_critique else ("Alerte" if x < 2*seuil_critique else "Normal")
+    )
+    alert_counts = df_latest["status"].value_counts()
+    fig_alert = go.Figure(go.Pie(
+        labels=alert_counts.index,
+        values=alert_counts.values,
+        hole=0.4,
+        marker=dict(colors=['#d32f2f','#f9a825','#2e7d32'])
+    ))
+    fig_alert.update_layout(title="Répartition des GAB par statut")
+    st.plotly_chart(fig_alert, use_container_width=True)
+else:
+    st.info("Aucune alerte disponible pour la période sélectionnée.")
+
+# --- Evolution des retraits ---
+st.markdown("### Evolution des retraits (analyse détaillée)")
+
+if not df_filtered.empty:
+    df_evol = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
+    fig_evol = go.Figure()
+    fig_evol.add_trace(go.Scatter(
+        x=df_evol["ds"], y=df_evol["total_montant"]/1000,
+        mode="lines+markers",
+        name="Total retraits hebdomadaire"
+    ))
+    fig_evol.update_layout(
+        title="Evolution hebdomadaire des retraits (K MAD)",
+        xaxis_title="Date",
+        yaxis_title="Montant retiré (K MAD)"
+    )
+    st.plotly_chart(fig_evol, use_container_width=True)
+else:
+    st.info("Pas de données pour l'évolution des retraits sur la période sélectionnée.")
+
+
     st.sidebar.markdown("---")
     seuil_critique = st.sidebar.number_input("Seuil critique (MAD)", value=100000, step=10000)
 
