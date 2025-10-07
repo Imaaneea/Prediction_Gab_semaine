@@ -276,42 +276,39 @@ if tab == "Tableau de bord analytique":
 
     df_latest["status"] = df_latest.apply(classify_gab, axis=1)
 
-    # --- KPI ---
+    # --- KPI alertes ---
     nb_critique = df_latest[df_latest["status"]=="Critique"]["num_gab"].nunique()
     nb_alerte = df_latest[df_latest["status"]=="Alerte"]["num_gab"].nunique()
+    nb_normal = df_latest[df_latest["status"]=="Normal"]["num_gab"].nunique()
     dispo_proxy = (df_latest.shape[0] - nb_critique) / df_latest.shape[0] * 100 if not df_latest.empty else 100.0
 
     k1, k2, k3, k4 = st.columns([2,2,2,2])
     k1.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-title">Montant total retraits</div>
-            <div class="kpi-value">{montant_total/1_000_000:,.2f} M MAD</div>
-            <div class="kpi-sub">Période filtrée</div>
+            <div class="kpi-title">GAB Critique</div>
+            <div class="kpi-value">{nb_critique}</div>
         </div>
     """, unsafe_allow_html=True)
     k2.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-title">Nombre total opérations</div>
-            <div class="kpi-value">{nombre_operations:,.0f}</div>
-            <div class="kpi-sub">Période filtrée</div>
+            <div class="kpi-title">GAB Alerte</div>
+            <div class="kpi-value">{nb_alerte}</div>
         </div>
     """, unsafe_allow_html=True)
     k3.markdown(f"""
         <div class="kpi-card">
-            <div class="kpi-title">Nombre GAB (réseau)</div>
-            <div class="kpi-value">{nb_gabs}</div>
-            <div class="kpi-sub">Filtré</div>
+            <div class="kpi-title">GAB Normal</div>
+            <div class="kpi-value">{nb_normal}</div>
         </div>
     """, unsafe_allow_html=True)
     k4.markdown(f"""
         <div class="kpi-card">
             <div class="kpi-title">Disponibilité (proxy)</div>
             <div class="kpi-value">{dispo_proxy:.0f}%</div>
-            <div class="kpi-sub">GAB au-dessus du seuil</div>
         </div>
     """, unsafe_allow_html=True)
 
-    # --- Alertes récentes (bar chart par région) ---
+    # --- Alertes récentes par région ---
     st.markdown("### Alertes récentes (dernier état des GABs)")
     if not df_latest.empty:
         alert_counts_region = df_latest.groupby(["region","status"])["num_gab"].count().reset_index()
@@ -328,24 +325,36 @@ if tab == "Tableau de bord analytique":
     else:
         st.info("Aucune alerte disponible pour la période sélectionnée.")
 
-    # --- Evolution des retraits ---
-    st.markdown("### Evolution des retraits (analyse détaillée)")
-    if not df_filtered.empty:
-        df_evol = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
-        fig_evol = go.Figure()
-        fig_evol.add_trace(go.Scatter(
-            x=df_evol["ds"], y=df_evol["total_montant"]/1000,
-            mode="lines+markers",
-            name="Total retraits hebdomadaire"
-        ))
-        fig_evol.update_layout(
-            title="Evolution hebdomadaire des retraits (K MAD)",
-            xaxis_title="Date",
-            yaxis_title="Montant retiré (K MAD)"
-        )
-        st.plotly_chart(fig_evol, use_container_width=True)
-    else:
-        st.info("Pas de données pour l'évolution des retraits sur la période sélectionnée.")
+    # --- Tableau statuts GAB ---
+    st.markdown("### Détail des GAB par statut")
+    if not df_latest.empty:
+        def status_label(val):
+            if val=="Critique":
+                return "badge-crit"
+            elif val=="Alerte":
+                return "badge-alert"
+            else:
+                return "badge-norm"
+
+        display_cols = ["num_gab"]
+        if "agence" in df_latest.columns:
+            display_cols.append("agence")
+        if "region" in df_latest.columns:
+            display_cols.append("region")
+        display_cols.append("total_montant")
+        df_display = df_latest[display_cols].copy().reset_index(drop=True)
+        df_display["status_html"] = df_latest["status"].apply(lambda x: f'<span class="{status_label(x)}">{x}</span>')
+
+        for _, row in df_display.iterrows():
+            cols_count = len(display_cols) + 1
+            cols = st.columns(cols_count)
+            idx = 0
+            cols[idx].write(row["num_gab"]); idx+=1
+            if "agence" in row.index: cols[idx].write(row.get("agence","-")); idx+=1
+            if "region" in row.index: cols[idx].write(row.get("region","-")); idx+=1
+            cols[idx].write(f"{row['total_montant']/1000:,.0f} K MAD"); idx+=1
+            cols[idx].markdown(row["status_html"], unsafe_allow_html=True)
+
 
 # ========================================
 # Prévisions LSTM
