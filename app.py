@@ -7,26 +7,148 @@ import joblib
 import numpy as np
 
 # ========================================
-# Configuration page & style
+# Configuration page
 # ========================================
 st.set_page_config(page_title="CashGAB : Dashboard GAB", layout="wide")
 
-st.markdown(
-    """
-    <style>
-    .main .block-container { padding: 1.2rem 2rem 2rem 2rem; }
-    .kpi-card { background: #ffffff; border-radius: 10px; padding: 14px; box-shadow: 0 6px 18px rgba(30,58,138,0.06); border: 1px solid rgba(30,58,138,0.08); height: 110px; }
-    .kpi-title { color: #566270; font-size: 13px; margin-bottom: 6px; }
-    .kpi-value { color: #0b5394; font-size: 26px; font-weight: 700; }
-    .kpi-sub { color: #8b99a6; font-size: 12px; }
-    .badge-crit { background:#fdecea; color:#d32f2f; padding:6px 10px; border-radius:12px; font-weight:700; }
-    .badge-alert { background:#fff8e1; color:#f9a825; padding:6px 10px; border-radius:12px; font-weight:700; }
-    .badge-norm { background:#e8f5e9; color:#2e7d32; padding:6px 10px; border-radius:12px; font-weight:700; }
-    .muted { color:#7f8b95; font-size:13px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# ========================================
+# CSS pour design pro
+# ========================================
+st.markdown("""
+<style>
+/* ====== Global ====== */
+body, .block-container {
+    background-color: #f9f9f9;
+    color: #333333;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* ====== Header ====== */
+.header-container {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    background-color: #ffffff;
+    padding: 15px 20px;
+    border-radius: 15px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+}
+.header-container img {
+    height: 60px;
+    margin-right: 20px;
+}
+.header-container h1 {
+    font-size: 28px;
+    color: #0b5394;
+    margin: 0;
+    font-weight: 700;
+}
+
+/* ====== KPI Cards ====== */
+.kpi-card {
+    background: #ffffff;
+    border-radius: 15px;
+    padding: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(30,58,138,0.1);
+    height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.kpi-title {
+    color: #566270;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.kpi-value {
+    color: #0b5394;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+.kpi-sub {
+    color: #8b99a6;
+    font-size: 12px;
+}
+
+/* ====== Badges ====== */
+.badge-crit {
+    background: #fdecea;
+    color: #d32f2f;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.badge-alert {
+    background: #fff8e1;
+    color: #f9a825;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+.badge-norm {
+    background: #e8f5e9;
+    color: #2e7d32;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 12px;
+}
+
+/* ====== Tables ====== */
+.stDataFrame td, .stDataFrame th {
+    padding: 8px 12px !important;
+    border-radius: 8px;
+}
+
+/* ====== Sidebar ====== */
+.css-1d391kg {  /* classe Streamlit sidebar */
+    background-color: #ffffff !important;
+    padding: 20px;
+    border-radius: 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+/* ====== Graphes ====== */
+.js-plotly-plot {
+    border-radius: 15px !important;
+    background-color: #ffffff !important;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08) !important;
+    padding: 10px !important;
+}
+
+/* ====== Inputs ====== */
+.stNumberInput, .stSelectbox, .stSlider {
+    border-radius: 12px;
+    padding: 8px;
+    border: 1px solid #ccc;
+}
+
+/* ====== Misc ====== */
+hr {
+    border: 1px solid rgba(30,58,138,0.1);
+    margin: 20px 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ========================================
+# Header pro
+# ========================================
+st.markdown("""
+<div class="header-container">
+    <img src="https://www.albaridbank.ma/themes/baridbank/logo.png">
+    <h1>CashGAB - Dashboard GAB</h1>
+</div>
+""", unsafe_allow_html=True)
 
 # ========================================
 # Load data
@@ -34,7 +156,12 @@ st.markdown(
 @st.cache_data
 def load_data():
     try:
-        df = pd.read_csv("df_weekly_clean.csv", encoding="utf-8-sig", sep=",", on_bad_lines="skip")
+        df = pd.read_csv(
+            "df_weekly_clean.csv",
+            encoding="utf-8-sig",
+            sep=",",
+            on_bad_lines="skip"
+        )
         df.columns = df.columns.str.strip()
     except Exception as e:
         st.error(f"Erreur lors de la lecture du CSV : {e}")
@@ -87,7 +214,6 @@ lstm_models, lstm_scalers = load_lstm_models()
 # ========================================
 # Sidebar & Navigation
 # ========================================
-st.sidebar.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.sidebar.title("CashGAB")
 st.sidebar.markdown("Solution de gestion proactive des GABs")
 tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
@@ -185,7 +311,7 @@ if tab == "Tableau de bord analytique":
         </div>
     """, unsafe_allow_html=True)
 
-    # --- Alertes récentes ---
+    # --- Alertes récentes (bar chart par région) ---
     st.markdown("### Alertes récentes (dernier état des GABs)")
     if not df_latest.empty:
         alert_counts_region = df_latest.groupby(["region","status"])["num_gab"].count().reset_index()
@@ -221,56 +347,6 @@ if tab == "Tableau de bord analytique":
     else:
         st.info("Pas de données pour l'évolution des retraits sur la période sélectionnée.")
 
-    # --- Fiches réseau ---
-    st.markdown("### Fiches réseau (aperçu des GABs)")
-    if not df_latest.empty:
-        def status_label(val):
-            if val=="Critique": return "badge-crit"
-            elif val=="Alerte": return "badge-alert"
-            else: return "badge-norm"
-
-        df_latest["status_html"] = df_latest["status"].apply(lambda x: f'<span class="{status_label(x)}">{x}</span>')
-
-        cols_to_show = ["num_gab"]
-        if "agence" in df_latest.columns:
-            cols_to_show.append("agence")
-        if "region" in df_latest.columns:
-            cols_to_show.append("region")
-        cols_to_show.append("total_montant")
-        cols_to_show.append("status_html")
-
-        display_df = df_latest[cols_to_show].copy().reset_index(drop=True)
-        st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
-        for _, row in display_df.iterrows():
-            n_cols = len(row)
-            cols = st.columns(n_cols)
-            for col_idx, val in enumerate(row):
-                if col_idx == n_cols-1:  # status_html
-                    cols[col_idx].markdown(val, unsafe_allow_html=True)
-                elif isinstance(val, (int,float)):
-                    cols[col_idx].write(f"{val/1000:,.0f} K MAD")
-                else:
-                    cols[col_idx].write(val)
-
-    else:
-        st.info("Aucune fiche réseau disponible pour la sélection.")
-
-    # --- Répartition régionale ---
-    st.markdown("### Répartition régionale & évolution")
-    if not df_filtered.empty:
-        df_region_avg = df_filtered.groupby("region")["total_montant"].mean().reset_index().sort_values("total_montant", ascending=False)
-        fig_region = go.Figure(go.Bar(
-            x=df_region_avg["region"],
-            y=df_region_avg["total_montant"]/1000,
-            text=(df_region_avg["total_montant"]/1000).round(0),
-            textposition="auto",
-            marker_color='lightskyblue'
-        ))
-        fig_region.update_layout(title="Montant moyen hebdo par région (K MAD)", xaxis_title="Région", yaxis_title="Montant moyen")
-        st.plotly_chart(fig_region, use_container_width=True)
-    else:
-        st.info("Aucune donnée pour la période / filtres sélectionnés.")
-
 # ========================================
 # Prévisions LSTM
 # ========================================
@@ -298,7 +374,10 @@ if tab == "Prévisions LSTM 20 GAB":
                 model = lstm_models[gab_selected]
 
                 y_scaled = scaler.transform(df_gab[['y']].values)
-                X = np.array([y_scaled[i:i+n_steps] for i in range(len(y_scaled)-n_steps)]).reshape(-1, n_steps, 1)
+                X = []
+                for i in range(len(y_scaled) - n_steps):
+                    X.append(y_scaled[i:i+n_steps])
+                X = np.array(X).reshape(-1, n_steps, 1)
 
                 y_pred_scaled = model.predict(X, verbose=0)
                 y_pred = scaler.inverse_transform(y_pred_scaled)
