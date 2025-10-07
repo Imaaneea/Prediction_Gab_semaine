@@ -34,13 +34,8 @@ st.markdown(
 @st.cache_data
 def load_data_safe(file_path="df_weekly_clean.csv"):
     try:
-        # On lit le fichier en bytes pour éliminer le BOM
-        with open(file_path, "rb") as f:
-            content = f.read()
-        # On décode en utf-8-sig pour enlever le BOM
-        content = content.decode("utf-8-sig")
-        from io import StringIO
-        df = pd.read_csv(StringIO(content))
+        # Lire le CSV en utf-8-sig directement avec pandas
+        df = pd.read_csv(file_path, encoding="utf-8-sig")
         df.columns = df.columns.str.strip()  # enlever les espaces éventuels
     except Exception as e:
         print(f"Erreur CSV: {e}")
