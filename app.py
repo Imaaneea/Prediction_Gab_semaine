@@ -36,11 +36,10 @@ def load_data():
     try:
         df = pd.read_csv(
             "df_weekly_clean.csv",
-            encoding="utf-8-sig",  # gère le BOM
+            encoding="utf-8-sig",
             sep=",",
             on_bad_lines="skip"
         )
-        # =====> Corrige le KeyError en nettoyant les noms de colonnes
         df.columns = df.columns.str.strip()
     except Exception as e:
         st.error(f"Erreur lors de la lecture du CSV : {e}")
@@ -50,9 +49,8 @@ def load_data():
         st.error("Le fichier CSV est vide.")
         return pd.DataFrame()
 
-    # Conversion date
     if "ds" in df.columns: 
-        df["ds"] = pd.to_datetime(df["ds"], errors="coerce")  # invalid parsing -> NaT
+        df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
     else:
         st.error("La colonne 'ds' est absente du CSV.")
         return pd.DataFrame()
@@ -170,21 +168,53 @@ if tab == "Tableau de bord analytique":
         </div>
     """, unsafe_allow_html=True)
 
-    # --- Badges Critique / Alerte / Normal ---
-    st.markdown("### Statut des GAB (seuil critique)")
+    # --- Fiches réseau avec statut (nouvelle version) ---
+    st.markdown("### Fiches réseau (aperçu des GABs)")
     if not df_latest.empty:
-        def badge_gab(row):
-            if row["total_montant"] < seuil_critique:
-                return f'<span class="badge-crit">{row["num_gab"]} Critique</span>'
-            elif row["total_montant"] < 2*seuil_critique:
-                return f'<span class="badge-alert">{row["num_gab"]} Alerte</span>'
-            else:
-                return f'<span class="badge-norm">{row["num_gab"]} Normal</span>'
 
-        badges_html = "<br>".join(df_latest.apply(badge_gab, axis=1).tolist())
-        st.markdown(badges_html, unsafe_allow_html=True)
+        def status_label(val):
+            if val < seuil_critique:
+                return ("Critique", "badge-crit")
+            elif val < 2*seuil_critique:
+                return ("Alerte", "badge-alert")
+            else:
+                return ("Normal", "badge-norm")
+
+        # Colonnes à afficher
+        cols_to_show = ["num_gab"]
+        if "agence" in df_latest.columns:
+            cols_to_show.append("agence")
+        if "region" in df_latest.columns:
+            cols_to_show.append("region")
+        cols_to_show.append("total_montant")
+
+        display_df = df_latest[cols_to_show].copy().reset_index(drop=True)
+        display_df["status_html"] = display_df["total_montant"].apply(lambda x: f'<span class="{status_label(x)[1]}">{status_label(x)[0]}</span>')
+
+        st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
+
+        # Affichage ligne par ligne
+        for _, row in display_df.iterrows():
+            n_cols = 2  # num_gab + total_montant
+            if "agence" in row.index:
+                n_cols += 1
+            if "region" in row.index:
+                n_cols += 1
+            cols = st.columns(n_cols)
+            col_idx = 0
+            cols[col_idx].write(row["num_gab"])
+            col_idx += 1
+            if "agence" in row.index:
+                cols[col_idx].write(row.get("agence","-"))
+                col_idx += 1
+            if "region" in row.index:
+                cols[col_idx].write(row.get("region","-"))
+                col_idx += 1
+            cols[col_idx].write(f"{row['total_montant']/1000:,.0f} K MAD")
+            col_idx += 1
+            cols[col_idx].markdown(row["status_html"], unsafe_allow_html=True)
     else:
-        st.info("Aucune donnée pour les GAB à afficher.")
+        st.info("Aucune fiche réseau disponible pour la sélection.")
 
     # --- Répartition régionale ---
     st.markdown("### Répartition régionale & évolution")
