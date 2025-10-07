@@ -138,7 +138,7 @@ df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) & (d
 # Tab 1 : Tableau de bord analytique (amélioré)
 # ========================================
 if tab == "Tableau de bord analytique":
-    st.title("Tableau de bord analytique — CashGAB")
+    st.title("CashGAB — Tableau de bord analytique")
     st.markdown("Vue d’ensemble du réseau et KPIs interactifs")
 
     # KPI calculations linked to df_filtered (respect filters)
