@@ -54,6 +54,15 @@ def load_data():
             sep=",",           # change en ';' si ton fichier utilise des points-virgules
             on_bad_lines="skip"
         )
+    if df.empty:
+        return df
+
+    # --- Conversion date ---
+    if "ds" in df.columns:
+        df["ds"] = pd.to_datetime(df["ds"], errors="coerce")  # invalid parsing -> NaT
+    else:
+        st.error("La colonne 'ds' est absente du CSV.")
+        return pd.DataFrame()
     # Force types & fallback
     if "num_gab" in df.columns:
         df["num_gab"] = df["num_gab"].astype(str)
