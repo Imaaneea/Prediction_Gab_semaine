@@ -275,29 +275,24 @@ if tab == "Tableau de bord analytique":
 # Tab 2 : Prévisions LSTM (inchangé fonctionnellement, amélioré UI)
 # ========================================
 if tab == "Prévisions LSTM 20 GAB":
-    st.title("Prévisions LSTM - CashGAB")
-    st.markdown("Simulation et prévisions LSTM par GAB (ajustable)")
-
-    # Params in sidebar (for this tab only)
-    st.sidebar.markdown("---")
-    st.sidebar.header("Paramètres prédiction")
+    st.title("Prévisions LSTM - 20 GAB")
+    st.sidebar.header("Paramètres de simulation")
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
+
     if not gab_options:
-        st.sidebar.info("Aucun modèle LSTM chargé.")
-        st.warning("Aucun GAB disponible avec modèles LSTM. Vérifiez les fichiers .h5 et .save.")
+        st.warning("Aucun GAB disponible avec modèles LSTM.")
     else:
         gab_selected = st.sidebar.selectbox("Sélectionner un GAB", gab_options)
-        period_forecast = st.sidebar.selectbox("Période (semaines)", [1,2,4,6], index=2)
-        variation = st.sidebar.slider("Facteur de variation (%)", -50, 50, 0)
+        period_forecast = st.sidebar.selectbox("Période de prévision", [1,2,4,6])
+        variation = st.sidebar.slider("Facteur de variation (%)", -50,50,0)
 
         df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
         if len(df_gab) < 52:
-            st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
+            st.warning("Pas assez de données pour la prévision LSTM (min 52 semaines).")
         else:
             st.subheader(f"Prévisions pour GAB {gab_selected}")
 
             try:
-                # Preparation same as original
                 n_steps = 4
                 scaler = lstm_scalers[gab_selected]
                 model = lstm_models[gab_selected]
@@ -308,42 +303,36 @@ if tab == "Prévisions LSTM 20 GAB":
                     X.append(y_scaled[i:i+n_steps])
                 X = np.array(X).reshape(-1, n_steps, 1)
 
-                # Predictions on history
                 y_pred_scaled = model.predict(X, verbose=0)
                 y_pred = scaler.inverse_transform(y_pred_scaled)
-
                 y_true = df_gab['y'].values[n_steps:]
                 dates = df_gab['ds'][n_steps:]
 
-                # Future forecasts adjusted by variation
                 last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
                 future_preds = []
                 future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(period_forecast)]
 
                 for _ in range(period_forecast):
                     pred_scaled = model.predict(last_sequence, verbose=0)
-                    pred = scaler.inverse_transform(pred_scaled)[0, 0]
+                    pred = scaler.inverse_transform(pred_scaled)[0,0]
                     pred_adjusted = pred * (1 + variation/100)
-                    future_preds.append(pred_adjusted) 
+                    future_preds.append(pred_adjusted/1000)
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
-                # Plot: actual, historical predictions, future adjusted
                 fig_pred = go.Figure()
-                fig_pred.add_trace(go.Scatter(x=dates, y=y_true, mode="lines+markers", name="Montant réel (MAD)"))
-                fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten(), mode="lines+markers", name="Prédiction historique (MAD)"))
-                fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name=f"Prévisions futures ajustées ({variation}%)"))
-
-                fig_pred.update_layout(title=f"Prévision LSTM GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant (MAD)",
-                                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Montant réel"))
+                fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten()/1000, mode="lines+markers", name="Prédiction LSTM"))
+                fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name=f"Prévisions ajustées ({variation}%)"))
+                fig_pred.update_layout(title=f"Prévision LSTM GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant retiré (K MAD)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
                 # CSV download
                 df_csv = pd.DataFrame({
-                    "ds": list(dates) + future_dates,
-                    "y_true_dh": list(y_true) + [None]*period_forecast,
-                    "y_pred_dh": list(y_pred.flatten()) + future_preds
+                    "ds": list(dates)+future_dates,
+                    "y_true_kdh": list(y_true/1000)+[None]*period_forecast,
+                    "y_pred_kdh": list(y_pred.flatten()/1000)+future_preds
                 })
-                st.download_button("Télécharger prévisions CSV", df_csv.to_csv(index=False), file_name=f"pred_{gab_selected}.csv", mime="text/csv")
+                st.download_button("Télécharger CSV", df_csv.to_csv(index=False), file_name=f"pred_{gab_selected}.csv", mime="text/csv")
 
             except Exception as e:
-                st.error(f"Erreur lors de la génération des prévisions: {e}")
+                st.error(f"Erreur lors des prévisions: {e}")
