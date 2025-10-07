@@ -50,7 +50,7 @@ def load_data():
     df = pd.read_csv(
             "df_weekly_clean.csv",
             encoding="utf-8",
-            sep=",",
+            sep=";",
             on_bad_lines="skip"
         )
     if df.empty:
