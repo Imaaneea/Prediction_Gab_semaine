@@ -124,7 +124,7 @@ if ("num_gab" in df_filtered.columns) and (not df_filtered.empty):
 else:
     df_latest = pd.DataFrame()
 
-# Seuil critique par GAB (moyenne historique dans la période filtrée) unless user sets a global one
+# Seuil critique par GAB (moyenne historique in period) unless user sets a global one
 if not df_filtered.empty:
     df_avg_gab = df_filtered.groupby("num_gab")["total_montant"].mean().to_dict()
 else:
@@ -170,7 +170,7 @@ if tab == "Tableau de bord analytique":
     st.markdown("---")
 
     # =========================
-    # Evolution des retraits — chart sophistiqué
+    # Evolution des retraits — chart (corrected rangeselector)
     # =========================
     st.subheader("Évolution des retraits")
     if df_filtered.empty:
@@ -211,17 +211,25 @@ if tab == "Tableau de bord analytique":
                 mode="markers", name="Anomalies (<<MA4)",
                 marker=dict(color="red", size=10, symbol="x")
             ))
+
+        # --- corrected rangeselector / rangeslider block (stable) ---
         fig.update_layout(
             title="Evolution hebdomadaire des retraits avec MA(4)",
-            xaxis=dict(rangeselector=dict(buttons=list([
-                dict(count=8, label="2M", step="week", stepmode="backward"),
-                dict(count=26, label="6M", step="week", stepmode="backward"),
-                dict(count=52, label="1Y", step="week", stepmode="backward"),
-                dict(step="all")
-            ])), rangeslider=dict(visible=True), type="date"),
+            xaxis=dict(
+                rangeselector=dict(
+                    buttons=list([
+                        dict(count=8, label="2M", step="week", stepmode="backward"),
+                        dict(count=26, label="6M", step="week", stepmode="backward"),
+                        dict(step="all", label="Tout")
+                    ])
+                ),
+                rangeslider=dict(visible=True),
+                type="date"
+            ),
             yaxis_title="Montant (K MAD)",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
+
         st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
@@ -258,12 +266,8 @@ if tab == "Tableau de bord analytique":
             customdata=(df_region_tot[metric_col] / df_region_tot[metric_col].sum() * 100).round(2)
         ))
 
-        # Annotate top3
+        # Annotate top3 (kept simple)
         top3 = df_region_tot.tail(3)
-        annotations = []
-        for i, r in enumerate(top3.itertuples(), start=1):
-            annotations.append(dict(x=r._asdict()[metric_col]/1000, y=r.region,
-                                    xanchor='left', text=f"Top{3-(2-(i-1)) if False else ' '}", showarrow=False))
 
         # Add optional line: when user selects a region, show its weekly trend overlay
         region_choice = st.selectbox("Afficher la tendance hebdo pour la région:", ["Aucune"] + df_region_tot["region"].tolist())
@@ -271,6 +275,7 @@ if tab == "Tableau de bord analytique":
             # compute weekly totals for that region within filtered period
             df_reg_week = df_filtered[df_filtered["region"] == region_choice].groupby("ds")["total_montant"].sum().reset_index().sort_values("ds")
             if not df_reg_week.empty:
+                # overlay as a thin trace (placed centered visually)
                 fig_r.add_trace(go.Scatter(
                     x=df_reg_week["total_montant"]/1000,
                     y=[region_choice]*len(df_reg_week),  # place on same y coordinate -> trick to show mini trend
@@ -393,4 +398,3 @@ if tab == "Prévisions LSTM 20 GAB":
                 st.download_button("Télécharger CSV prévisions", df_out.to_csv(index=False), file_name=f"pred_{gab_selected}.csv", mime="text/csv")
             except Exception as e:
                 st.error(f"Erreur prévision: {e}")
-
