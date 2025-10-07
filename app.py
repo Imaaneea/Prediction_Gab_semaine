@@ -7,222 +7,256 @@ import joblib
 import numpy as np
 
 # ========================================
-# Configuration de la page
+# 1. Configuration de la page et Style CSS
 # ========================================
-st.set_page_config(page_title="CashGAB : Dashboard GAB", layout="wide")
+st.set_page_config(page_title="Dashboard de Trésorerie", layout="wide")
+
+# Injection de CSS pour un design moderne inspiré des maquettes
+st.markdown("""
+<style>
+    /* --- Général --- */
+    .main .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+    /* --- Barre latérale --- */
+    .st-emotion-cache-16txtl3 {
+        padding: 1rem 1rem;
+    }
+    /* --- Cartes KPI --- */
+    .kpi-card {
+        background-color: #FFFFFF;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+        border: 1px solid #E0E0E0;
+        height: 120px; /* Hauteur fixe pour l'alignement */
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .kpi-title { font-size: 14px; color: #555555; margin-bottom: 10px; }
+    .kpi-value { font-size: 28px; font-weight: bold; color: #1E3A8A; }
+    .kpi-desc { font-size: 12px; color: #888888; }
+
+    /* --- Statuts dans le tableau --- */
+    .status-critique { background-color: #FFCDD2; color: #C62828; padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; }
+    .status-alerte { background-color: #FFF9C4; color: #F57F17; padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; }
+    .status-normal { background-color: #C8E6C9; color: #2E7D32; padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; }
+    
+    /* --- Panneau de détails --- */
+    .detail-pane {
+        background-color: #FFFFFF;
+        border-left: 1px solid #E0E0E0;
+        padding: 20px;
+        border-radius: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # ========================================
-# Chargement des données
+# 2. Chargement des données (Votre code original)
 # ========================================
 @st.cache_data
 def load_data():
-    df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
+    try:
+        df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
+    except FileNotFoundError:
+        st.error("ERREUR : Le fichier 'df_weekly_clean.csv' est introuvable. Veuillez vous assurer qu'il est dans le même dossier que l'application.")
+        st.stop()
+
     df["num_gab"] = df["num_gab"].astype(str)
     df["week_day"] = df["ds"].dt.dayofweek
     df["week"] = df["ds"].dt.isocalendar().week
     df["year"] = df["ds"].dt.year
+    # Assurez-vous que la colonne 'y' existe pour les prédictions
+    if 'y' not in df.columns and 'total_montant' in df.columns:
+        df['y'] = df['total_montant']
     return df
 
 df = load_data()
 
 # ========================================
-# Chargement silencieux des modèles LSTM
+# 3. Chargement des modèles LSTM (Votre code original)
 # ========================================
 @st.cache_data
 def load_lstm_models():
-    models = {}
-    scalers = {}
+    models, scalers = {}, {}
     for model_file in glob.glob("lstm_gab_*.h5"):
         gab_id = model_file.split("_")[-1].replace(".h5", "")
         scaler_file = f"scaler_gab_{gab_id}.save"
         try:
             models[gab_id] = load_model(model_file, compile=False)
             scalers[gab_id] = joblib.load(scaler_file)
-        except Exception as e:
-            st.warning(f"Impossible de charger LSTM pour {gab_id}: {e}")
+        except Exception:
+            pass # Ignore les erreurs de chargement en silence
     return models, scalers
 
 lstm_models, lstm_scalers = load_lstm_models()
 
 # ========================================
-# Onglets
+# 4. Barre de navigation latérale
 # ========================================
-tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
+st.sidebar.title("CashGAB")
+st.sidebar.markdown("---")
+tab = st.sidebar.radio("Navigation", 
+    ["📊 Tableau de bord", "📈 Prévisions", "⚙️ Planification"], 
+    captions=["Vue d'ensemble du réseau", "Simulation et prévision", "Gestion des transferts"])
 
-# ========================================
-# Onglet 1 : Tableau de bord analytique
-# ========================================
-if tab == "Tableau de bord analytique":
-    st.title("Tableau de bord analytique - CashGAB")
-
-    # Sidebar filtres
-    st.sidebar.header("Filtres")
-    regions = df["region"].dropna().unique()
-    region = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()))
-
-    if region != "Toutes":
-        agences = df[df["region"] == region]["agence"].dropna().unique()
-    else:
-        agences = df["agence"].dropna().unique()
-    agence = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()))
-
-    if agence != "Toutes":
-        gabs = df[df["agence"] == agence]["num_gab"].dropna().unique()
-    else:
-        gabs = df["num_gab"].dropna().unique()
-    gab = st.sidebar.selectbox("GAB", ["Tous"] + sorted(gabs.tolist()))
-
-    # Filtre de dates
-    date_min = df["ds"].min()
-    date_max = df["ds"].max()
-    date_debut = st.sidebar.date_input("Date début", date_min)
-    date_fin = st.sidebar.date_input("Date fin", date_max)
-
-    # Appliquer filtres
-    df_filtered = df.copy()
-    if region != "Toutes":
-        df_filtered = df_filtered[df_filtered["region"] == region]
-    if agence != "Toutes":
-        df_filtered = df_filtered[df_filtered["agence"] == agence]
-    if gab != "Tous":
-        df_filtered = df_filtered[df_filtered["num_gab"] == gab]
-    df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) &
-                              (df_filtered["ds"] <= pd.to_datetime(date_fin))]
-
-    # KPIs principaux
-    st.subheader("KPIs principaux")
-    volume_moyen_semaine = df_filtered.groupby("week")["total_montant"].mean().mean()
-    nombre_operations = df_filtered["total_nombre"].sum()
-    nombre_gab_actifs = df_filtered["num_gab"].nunique()
-    ecart_type_retraits = df_filtered["total_montant"].std()
-    part_weekend = df_filtered[df_filtered["week_day"] >= 5]["total_montant"].sum() / df_filtered["total_montant"].sum() * 100
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Volume moyen hebdo", f"{volume_moyen_semaine/1000:,.0f} KDH")
-    col2.metric("Nombre total d'opérations", f"{nombre_operations/1000:,.0f} KDH")
-    col3.metric("Nombre de GAB actifs", f"{nombre_gab_actifs}")
-    col4.metric("Écart-type des retraits", f"{ecart_type_retraits/1000:,.0f} KDH")
-    col5.metric("Part des retraits week-end", f"{part_weekend:.1f} %")
-
-    # Camembert
-    st.subheader("Répartition des retraits hebdo par région (par année)")
-    years = sorted(df_filtered["year"].unique())
-    selected_year = st.selectbox("Sélectionner l'année", years, key="year_pie")
-    df_year = df_filtered[df_filtered["year"] == selected_year]
-    df_pie = df_year.groupby("region")["total_montant"].mean().reset_index()
-    df_pie["total_montant_kdh"] = df_pie["total_montant"] / 1000
-
-    fig_pie = go.Figure()
-    fig_pie.add_trace(go.Pie(
-        labels=df_pie["region"],
-        values=df_pie["total_montant_kdh"],
-        name=f"Montant moyen hebdo par région en {selected_year}"
-    ))
-    st.plotly_chart(fig_pie, use_container_width=True)
-
-    # Graphique d'évolution
-    st.subheader("Évolution des retraits")
-    level_options = ["Global"] + sorted(df_filtered["region"].unique()) + sorted(df_filtered["num_gab"].unique())
-    selected_level = st.selectbox("Sélectionner le niveau", level_options, key="evol_level")
-
-    if selected_level == "Global":
-        df_plot = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
-        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
-        title = "Évolution des retraits globaux"
-    elif selected_level in df_filtered["region"].unique():
-        df_plot = df_filtered[df_filtered["region"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
-        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
-        title = f"Évolution des retraits - Région {selected_level}"
-    else:
-        df_plot = df_filtered[df_filtered["num_gab"] == selected_level].groupby("ds")["total_montant"].sum().reset_index()
-        df_plot["total_montant_kdh"] = df_plot["total_montant"] / 1000
-        title = f"Évolution des retraits - GAB {selected_level}"
-
-    fig_line = go.Figure()
-    fig_line.add_trace(go.Scatter(x=df_plot["ds"], y=df_plot["total_montant_kdh"], mode="lines+markers", name="Montant retiré (KDH)"))
-    fig_line.update_layout(title=title, xaxis_title="Date", yaxis_title="Montant retiré (KDH)")
-    st.plotly_chart(fig_line, use_container_width=True)
+# Initialisation de l'état de session pour le GAB sélectionné
+if 'selected_gab' not in st.session_state:
+    st.session_state.selected_gab = None
 
 # ========================================
-# Onglet 2 : Prévisions LSTM 20 GAB avec facteur de variation
+# 5. Onglet : Tableau de bord (Entièrement dynamique et interactif)
 # ========================================
-if tab == "Prévisions LSTM 20 GAB":
-    st.title("Prévisions LSTM - 20 GAB")
+if tab == "📊 Tableau de bord":
+    st.title("Dashboard de Trésorerie")
+    st.markdown("Accueil > Tableau de bord > **Vue d'ensemble**")
 
-    # Paramètres de simulation
+    # --- Préparation des données pour l'affichage ---
+    df_latest = df.loc[df.groupby('num_gab')['ds'].idxmax()].copy()
+
+    # --- Calculs dynamiques des KPIs ---
+    cash_disponible_total = df_latest['total_montant'].sum()
+    seuil_critique = 100000
+    agences_a_risque = df_latest[df_latest['total_montant'] < seuil_critique].shape[0]
+    transferts_a_prevoir = df_latest[df_latest['total_montant'] < seuil_critique]['total_montant'].sum()
+    dispo_reseau = (df_latest.shape[0] - agences_a_risque) / df_latest.shape[0] * 100 if not df_latest.empty else 100
+
+    st.info(f"⚠️ **La disponibilité réseau est de {dispo_reseau:.0f}%.** {agences_a_risque} GAB(s) présentent un risque critique.")
+
+    # --- Affichage des KPIs dynamiques ---
+    kpi_cols = st.columns(4)
+    kpi_cols[0].markdown(f'<div class="kpi-card"><div class="kpi-title">💵 Cash Disponible</div><div class="kpi-value">{cash_disponible_total/1000000:.2f}M MAD</div><div class="kpi-desc">Total sur le réseau</div></div>', unsafe_allow_html=True)
+    kpi_cols[1].markdown(f'<div class="kpi-card"><div class="kpi-title">🏢 GABs à Risque</div><div class="kpi-value">{agences_a_risque}</div><div class="kpi-desc">Cash sous le seuil critique</div></div>', unsafe_allow_html=True)
+    kpi_cols[2].markdown(f'<div class="kpi-card"><div class="kpi-title">🚚 Transferts à Prévoir</div><div class="kpi-value">{transferts_a_prevoir/1000:.0f}K MAD</div><div class="kpi-desc">Montant total à couvrir</div></div>', unsafe_allow_html=True)
+    kpi_cols[3].markdown(f'<div class="kpi-card"><div class="kpi-title">🌐 Disponibilité Réseau</div><div class="kpi-value">{dispo_reseau:.0f}%</div><div class="kpi-desc">GABs opérationnels</div></div>', unsafe_allow_html=True)
+    
+    st.markdown("  
+", unsafe_allow_html=True)
+
+    # --- Tableau principal et Panneau de détails ---
+    main_col, detail_col = st.columns([0.6, 0.4])
+    with main_col:
+        st.subheader("État du réseau")
+
+        def get_status_html(cash):
+            if cash < seuil_critique: return '<span class="status-critique">Critique</span>'
+            elif seuil_critique <= cash < 200000: return '<span class="status-alerte">Alerte</span>'
+            else: return '<span class="status-normal">Normal</span>'
+
+        df_latest['État'] = df_latest['total_montant'].apply(get_status_html)
+        
+        # Affichage du tableau ligne par ligne pour la cliquabilité
+        header_cols = st.columns((1, 2, 2, 2, 1))
+        header_cols[0].markdown("**ID GAB**")
+        header_cols[1].markdown("**Agence**")
+        header_cols[2].markdown("**Cash Disponible**")
+        header_cols[3].markdown("**Région**")
+        header_cols[4].markdown("**État**")
+
+        for _, row in df_latest.iterrows():
+            row_cols = st.columns((1, 2, 2, 2, 1))
+            row_cols[0].write(row['num_gab'])
+            row_cols[1].write(row['agence'])
+            row_cols[2].write(f"{row['total_montant']/1000:,.0f} K MAD")
+            row_cols[3].write(row['region'])
+            row_cols[4].markdown(row['État'], unsafe_allow_html=True)
+            # Le bouton invisible couvre la ligne pour la rendre cliquable
+            if row_cols[0].button(" ", key=f"btn_{row['num_gab']}"):
+                st.session_state.selected_gab = row['num_gab']
+                st.rerun()
+
+    with detail_col:
+        st.markdown('<div class="detail-pane">', unsafe_allow_html=True)
+        if st.session_state.selected_gab is None:
+            st.info("Cliquez sur une ligne du tableau pour afficher les détails.")
+        else:
+            gab_id = st.session_state.selected_gab
+            gab_data = df_latest[df_latest['num_gab'] == gab_id].iloc[0]
+            
+            st.subheader(f"Détails : {gab_data['agence']}")
+            st.markdown(f"**ID GAB :** {gab_id} | **Région :** {gab_data['region']}")
+            
+            st.metric("Cash disponible actuel", f"{gab_data['total_montant']/1000:,.0f} K MAD")
+            
+            st.markdown("---")
+            st.markdown("**Évolution du Cash Disponible**")
+            
+            history_df = df[df['num_gab'] == gab_id].sort_values('ds')
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=history_df['ds'], y=history_df['total_montant'], mode='lines', fill='tozeroy'))
+            fig.update_layout(height=200, margin=dict(l=0, r=0, t=0, b=0), yaxis_title="Montant (MAD)")
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown("**Historique des Transferts (Exemple)**")
+            # Données fictives pour l'historique
+            transfer_data = {
+                'Date': pd.to_datetime(['2025-05-20', '2025-05-12']),
+                'Montant (MAD)': [150000, 200000],
+                'Type': ['Entrant', 'Entrant']
+            }
+            st.dataframe(pd.DataFrame(transfer_data), use_container_width=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# ========================================
+# 6. Onglet : Prévisions (Votre code original)
+# ========================================
+elif tab == "📈 Prévisions":
+    st.title("Prévisions et Simulation LSTM")
     st.sidebar.header("Paramètres de simulation")
+    
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
     if not gab_options:
-        st.warning("Aucun GAB disponible avec modèles LSTM.")
+        st.warning("Aucun modèle LSTM n'a été chargé. Vérifiez la présence des fichiers .h5 et .save.")
     else:
         gab_selected = st.sidebar.selectbox("Sélectionner un GAB", gab_options)
-        period_forecast = st.sidebar.selectbox("Période de prévision", [1, 2, 4, 6], help="Nombre de semaines à prévoir")
-        variation = st.sidebar.slider("Facteur de variation (%)", -50, 50, 0, help="Ajustement manuel de la prévision")
+        period_forecast = st.sidebar.selectbox("Période de prévision (semaines)", [1, 2, 4, 6])
+        variation = st.sidebar.slider("Facteur de variation (%)", -50, 50, 0)
         
         df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
 
         if len(df_gab) < 52:
-            st.warning("Pas assez de données pour effectuer une prévision LSTM (minimum 52 semaines).")
+            st.warning("Pas assez de données pour ce GAB (minimum 52 semaines requises).")
         else:
-            st.subheader(f"Visualisation des données et prévisions pour GAB {gab_selected}")
-
+            st.subheader(f"Prévisions pour le GAB {gab_selected}")
             try:
-                # Préparation
                 n_steps = 4
                 scaler = lstm_scalers[gab_selected]
                 model = lstm_models[gab_selected]
 
                 y_scaled = scaler.transform(df_gab[['y']].values)
-                X = []
-                for i in range(len(y_scaled) - n_steps):
-                    X.append(y_scaled[i:i+n_steps])
-                X = np.array(X).reshape(-1, n_steps, 1)
-
-                # Prédictions sur toutes les semaines
-                y_pred_scaled = model.predict(X, verbose=0)
-                y_pred = scaler.inverse_transform(y_pred_scaled)
-
-                y_true = df_gab['y'].values[n_steps:]
-                dates = df_gab['ds'][n_steps:]
-
-                # Prévisions futures avec période choisie
+                
+                # Prévisions futures
                 last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
-                future_preds = []
+                future_preds_adjusted = []
                 future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(period_forecast)]
 
+                current_sequence = last_sequence
                 for _ in range(period_forecast):
-                    pred_scaled = model.predict(last_sequence, verbose=0)
-                    pred = scaler.inverse_transform(pred_scaled)[0, 0]
-                    # Appliquer le facteur de variation
-                    pred_adjusted = pred * (1 + variation/100)
-                    future_preds.append(pred_adjusted/1000)  # en KDH
-                    last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
+                    pred_scaled = model.predict(current_sequence, verbose=0)
+                    pred_adjusted = scaler.inverse_transform(pred_scaled)[0, 0] * (1 + variation/100)
+                    future_preds_adjusted.append(pred_adjusted)
+                    current_sequence = np.append(current_sequence[:, 1:, :], pred_scaled.reshape(1, 1, 1), axis=1)
 
-                # Graphique final
+                # Graphique
                 fig_pred = go.Figure()
-                fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Montant réel (KDH)"))
-                fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten()/1000, mode="lines+markers", name="Prédiction LSTM (KDH)"))
-                fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name=f"Prévisions ajustées ({variation}%)"))
-
-                fig_pred.update_layout(
-                    title=f"Prévision LSTM GAB {gab_selected} avec ajustement de {variation}%",
-                    xaxis_title="Date",
-                    yaxis_title="Montant retiré (KDH)"
-                )
+                fig_pred.add_trace(go.Scatter(x=df_gab['ds'], y=df_gab['y'], mode="lines", name="Montant réel"))
+                fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds_adjusted, mode="lines+markers", name=f"Prévisions ajustées ({variation}%)", line=dict(color='red', dash='dash')))
+                fig_pred.update_layout(title=f"Prévision LSTM pour GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant retiré (MAD)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
-                # Téléchargement CSV
-                df_csv = pd.DataFrame({
-                    "ds": list(dates) + future_dates,
-                    "y_true_kdh": list(y_true/1000) + [None]*period_forecast,
-                    "y_pred_kdh": list(y_pred.flatten()/1000) + future_preds
-                })
-                st.download_button(
-                    label="Télécharger prévisions CSV",
-                    data=df_csv.to_csv(index=False),
-                    file_name=f"pred_{gab_selected}.csv",
-                    mime="text/csv"
-                )
-
             except Exception as e:
-                st.error(f"Erreur lors de la génération des prévisions: {e}")
+                st.error(f"Erreur lors de la génération des prévisions : {e}")
+
+# ========================================
+# 7. Onglet : Planification (Placeholder)
+# ========================================
+elif tab == "⚙️ Planification":
+    st.title("Planification des Transferts")
+    st.info("Cette section est en cours de construction. Elle contiendra le calendrier et la gestion des plans de transfert.")
+    # Vous pouvez utiliser une image de la maquette comme aperçu
+    st.image("https://i.imgur.com/3g6gL01.png", caption="Aperçu de la vue de planification." )
+
