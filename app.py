@@ -29,25 +29,38 @@ st.markdown("""
 # Load data
 # ========================================
 @st.cache_data
-def load_data(file_path="df_weekly_clean.csv"):
+def load_data():
+    file_path = "df_weekly_clean.csv"
     try:
+        # encoding='utf-8-sig' va automatiquement gérer le BOM
         df = pd.read_csv(file_path, encoding="utf-8-sig", sep=",", on_bad_lines="skip")
-        if df.empty:
-            st.error("Le fichier CSV est vide.")
-            return pd.DataFrame()
-        df.columns = df.columns.str.strip()
-        if "ds" not in df.columns:
-            st.error("La colonne 'ds' est absente du CSV.")
-            return pd.DataFrame()
+        df.columns = df.columns.str.strip()  # enlever espaces éventuels
+    except Exception as e:
+        st.error(f"Erreur lors de la lecture du CSV : {e}")
+        return pd.DataFrame()
+
+    if df.empty:
+        st.error("Le fichier CSV est vide.")
+        return pd.DataFrame()
+
+    # Vérifier les colonnes essentielles
+    if "ds" in df.columns:
         df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
-        if "num_gab" in df.columns:
-            df["num_gab"] = df["num_gab"].astype(str)
-        df["week_day"] = df["ds"].dt.dayofweek
-        df["week"] = df["ds"].dt.isocalendar().week
-        df["year"] = df["ds"].dt.year
-        if "y" not in df.columns and "total_montant" in df.columns:
-            df["y"] = df["total_montant"]
-        return df
+    else:
+        st.error("La colonne 'ds' est absente du CSV.")
+        return pd.DataFrame()
+
+    if "num_gab" in df.columns:
+        df["num_gab"] = df["num_gab"].astype(str)
+
+    df["week_day"] = df["ds"].dt.dayofweek
+    df["week"] = df["ds"].dt.isocalendar().week
+    df["year"] = df["ds"].dt.year
+
+    if "y" not in df.columns and "total_montant" in df.columns:
+        df["y"] = df["total_montant"]
+
+    return df
     except Exception as e:
         st.error(f"Erreur lecture CSV : {e}")
         return pd.DataFrame()
