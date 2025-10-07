@@ -5,46 +5,48 @@ import glob
 from tensorflow.keras.models import load_model
 import joblib
 import numpy as np
+from io import StringIO
 
 # ========================================
 # Configuration page & style
 # ========================================
 st.set_page_config(page_title="CashGAB : Dashboard GAB", layout="wide")
 
-st.markdown(
-    """
-    <style>
-    .main .block-container { padding: 1.2rem 2rem 2rem 2rem; }
-    .kpi-card { background: #ffffff; border-radius: 10px; padding: 14px; box-shadow: 0 6px 18px rgba(30,58,138,0.06); border: 1px solid rgba(30,58,138,0.08); height: 110px; }
-    .kpi-title { color: #566270; font-size: 13px; margin-bottom: 6px; }
-    .kpi-value { color: #0b5394; font-size: 26px; font-weight: 700; }
-    .kpi-sub { color: #8b99a6; font-size: 12px; }
-    .badge-crit { background:#fdecea; color:#d32f2f; padding:6px 10px; border-radius:12px; font-weight:700; }
-    .badge-alert { background:#fff8e1; color:#f9a825; padding:6px 10px; border-radius:12px; font-weight:700; }
-    .badge-norm { background:#e8f5e9; color:#2e7d32; padding:6px 10px; border-radius:12px; font-weight:700; }
-    .muted { color:#7f8b95; font-size:13px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<style>
+.main .block-container { padding: 1.2rem 2rem 2rem 2rem; }
+.kpi-card { background: #ffffff; border-radius: 10px; padding: 14px; box-shadow: 0 6px 18px rgba(30,58,138,0.06); border: 1px solid rgba(30,58,138,0.08); height: 110px; }
+.kpi-title { color: #566270; font-size: 13px; margin-bottom: 6px; }
+.kpi-value { color: #0b5394; font-size: 26px; font-weight: 700; }
+.kpi-sub { color: #8b99a6; font-size: 12px; }
+.badge-crit { background:#fdecea; color:#d32f2f; padding:6px 10px; border-radius:12px; font-weight:700; }
+.badge-alert { background:#fff8e1; color:#f9a825; padding:6px 10px; border-radius:12px; font-weight:700; }
+.badge-norm { background:#e8f5e9; color:#2e7d32; padding:6px 10px; border-radius:12px; font-weight:700; }
+.muted { color:#7f8b95; font-size:13px; }
+</style>
+""", unsafe_allow_html=True)
 
 # ========================================
-# Load data
+# Fonction pour charger CSV proprement
 # ========================================
 @st.cache_data
-def load_data():
+def load_data_safe(file_path="df_weekly_clean.csv"):
     try:
-        df = pd.read_csv("df_weekly_clean.csv", encoding="utf-8-sig", sep=",", on_bad_lines="skip")
+        with open(file_path, "rb") as f:
+            content = f.read()
+        content = content.decode("utf-8", errors="ignore")
+        content = content.lstrip('\ufeff').lstrip('´╗┐')  # Supprimer BOM / caractères bizarres
+        df = pd.read_csv(StringIO(content), sep=",", on_bad_lines="skip")
         df.columns = df.columns.str.strip()
     except Exception as e:
-        st.error(f"Erreur lors de la lecture du CSV : {e}")
+        st.error(f"Erreur CSV: {e}")
         return pd.DataFrame()
 
     if df.empty:
-        st.error("Le fichier CSV est vide.")
+        st.error("Le CSV est vide ou mal formaté.")
         return pd.DataFrame()
 
-    if "ds" in df.columns: 
+    if "ds" in df.columns:
         df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
     else:
         st.error("La colonne 'ds' est absente du CSV.")
@@ -53,21 +55,21 @@ def load_data():
     if "num_gab" in df.columns:
         df["num_gab"] = df["num_gab"].astype(str)
 
+    if "y" not in df.columns and "total_montant" in df.columns:
+        df["y"] = df["total_montant"]
+
     df["week_day"] = df["ds"].dt.dayofweek
     df["week"] = df["ds"].dt.isocalendar().week
     df["year"] = df["ds"].dt.year
 
-    if "y" not in df.columns and "total_montant" in df.columns:
-        df["y"] = df["total_montant"]
-
     return df
 
-df = load_data()
+df = load_data_safe()
 if df.empty:
     st.stop()
 
 # ========================================
-# Load LSTM models + scalers
+# Charger modèles LSTM + scalers
 # ========================================
 @st.cache_data
 def load_lstm_models():
@@ -85,14 +87,14 @@ def load_lstm_models():
 lstm_models, lstm_scalers = load_lstm_models()
 
 # ========================================
-# Sidebar & Navigation
+# Sidebar & navigation
 # ========================================
 st.sidebar.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.sidebar.title("CashGAB")
 st.sidebar.markdown("Solution de gestion proactive des GABs")
 tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
 
-# Global filters
+# Filtres globaux
 st.sidebar.markdown("---")
 regions = df["region"].dropna().unique() if "region" in df.columns else []
 region_filter = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()) if len(regions)>0 else ["Toutes"])
@@ -100,7 +102,7 @@ df_region = df[df["region"] == region_filter] if region_filter != "Toutes" else 
 agences = df_region["agence"].dropna().unique() if "agence" in df_region.columns else []
 agence_filter = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()) if len(agences)>0 else ["Toutes"])
 
-# Date filter
+# Filtre date
 date_min = df["ds"].min()
 date_max = df["ds"].max()
 st.sidebar.markdown("Période (TDB)")
@@ -133,21 +135,15 @@ if tab == "Tableau de bord analytique":
     if not df_filtered.empty:
         df_evol = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
         fig_evol = go.Figure()
-        fig_evol.add_trace(go.Scatter(
-            x=df_evol["ds"], y=df_evol["total_montant"]/1000,
-            mode="lines+markers",
-            name="Total retraits hebdomadaire"
-        ))
-        fig_evol.update_layout(
-            title="Evolution hebdomadaire des retraits (K MAD)",
-            xaxis_title="Date",
-            yaxis_title="Montant retiré (K MAD)"
-        )
+        fig_evol.add_trace(go.Scatter(x=df_evol["ds"], y=df_evol["total_montant"]/1000,
+                                      mode="lines+markers", name="Total retraits hebdomadaire"))
+        fig_evol.update_layout(title="Evolution hebdomadaire des retraits (K MAD)",
+                               xaxis_title="Date", yaxis_title="Montant retiré (K MAD)")
         st.plotly_chart(fig_evol, use_container_width=True)
     else:
         st.info("Pas de données pour l'évolution des retraits sur la période sélectionnée.")
 
-    # --- Répartition régionale & évolution ---
+    # --- Répartition régionale ---
     st.markdown("### Répartition régionale & évolution")
     if not df_filtered.empty:
         df_region_pie = df_filtered.groupby("region")["total_montant"].mean().reset_index().sort_values("total_montant", ascending=False)
@@ -159,15 +155,15 @@ if tab == "Tableau de bord analytique":
                 textposition='auto',
                 marker_color='rgb(26, 118, 255)'
             ))
-            fig_pie.update_layout(title="Montant moyen hebdo par région (K MAD)", xaxis_title="Région", yaxis_title="Montant moyen (K MAD)")
+            fig_pie.update_layout(title="Montant moyen hebdo par région (K MAD)",
+                                  xaxis_title="Région", yaxis_title="Montant moyen (K MAD)")
             st.plotly_chart(fig_pie, use_container_width=True)
     else:
         st.info("Aucune donnée pour la période / filtres sélectionnés.")
 
-    # --- KPIs ---
+    # --- KPIs & alertes ---
     df_latest = df_filtered.loc[df_filtered.groupby('num_gab')['ds'].idxmax()].copy() if ("num_gab" in df_filtered.columns and not df_filtered.empty) else pd.DataFrame()
     if not df_latest.empty:
-        # Calcul du seuil critique si non fourni
         if seuil_input == 0:
             df_avg = df_filtered.groupby("num_gab")["total_montant"].mean().reset_index()
             df_latest = df_latest.merge(df_avg, on="num_gab", suffixes=('', '_avg'))
@@ -176,57 +172,26 @@ if tab == "Tableau de bord analytique":
             df_latest["seuil_critique"] = seuil_input
 
         nb_critique = df_latest[df_latest["total_montant"] < df_latest["seuil_critique"]]["num_gab"].nunique()
-        nb_alerte = df_latest[(df_latest["total_montant"] >= df_latest["seuil_critique"]) & (df_latest["total_montant"] < 2*df_latest["seuil_critique"])]["num_gab"].nunique()
+        nb_alerte = df_latest[(df_latest["total_montant"] >= df_latest["seuil_critique"]) & 
+                              (df_latest["total_montant"] < 2*df_latest["seuil_critique"])]["num_gab"].nunique()
         dispo_proxy = (df_latest.shape[0] - nb_critique) / df_latest.shape[0] * 100
 
         k1, k2, k3, k4 = st.columns([2,2,2,2])
-        k1.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Montant total retraits</div>
-                <div class="kpi-value">{montant_total/1_000_000:,.2f} M MAD</div>
-                <div class="kpi-sub">Période filtrée</div>
-            </div>
-        """, unsafe_allow_html=True)
-        k2.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Nombre total opérations</div>
-                <div class="kpi-value">{nombre_operations:,.0f}</div>
-                <div class="kpi-sub">Période filtrée</div>
-            </div>
-        """, unsafe_allow_html=True)
-        k3.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Nombre GAB (réseau)</div>
-                <div class="kpi-value">{nb_gabs}</div>
-                <div class="kpi-sub">Filtré</div>
-            </div>
-        """, unsafe_allow_html=True)
-        k4.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Disponibilité (proxy)</div>
-                <div class="kpi-value">{dispo_proxy:.0f}%</div>
-                <div class="kpi-sub">GAB au-dessus du seuil</div>
-            </div>
-        """, unsafe_allow_html=True)
+        k1.markdown(f"""<div class="kpi-card"><div class="kpi-title">Montant total retraits</div><div class="kpi-value">{montant_total/1_000_000:,.2f} M MAD</div><div class="kpi-sub">Période filtrée</div></div>""", unsafe_allow_html=True)
+        k2.markdown(f"""<div class="kpi-card"><div class="kpi-title">Nombre total opérations</div><div class="kpi-value">{nombre_operations:,.0f}</div><div class="kpi-sub">Période filtrée</div></div>""", unsafe_allow_html=True)
+        k3.markdown(f"""<div class="kpi-card"><div class="kpi-title">Nombre GAB (réseau)</div><div class="kpi-value">{nb_gabs}</div><div class="kpi-sub">Filtré</div></div>""", unsafe_allow_html=True)
+        k4.markdown(f"""<div class="kpi-card"><div class="kpi-title">Disponibilité (proxy)</div><div class="kpi-value">{dispo_proxy:.0f}%</div><div class="kpi-sub">GAB au-dessus du seuil</div></div>""", unsafe_allow_html=True)
 
-        # --- Fiches réseau / alertes ---
         st.markdown("### Alertes récentes / Fiches réseau")
-
         def status_label(val, seuil):
-            if val < seuil:
-                return ("Critique", "badge-crit")
-            elif val < 2*seuil:
-                return ("Alerte", "badge-alert")
-            else:
-                return ("Normal", "badge-norm")
+            if val < seuil: return ("Critique", "badge-crit")
+            elif val < 2*seuil: return ("Alerte", "badge-alert")
+            else: return ("Normal", "badge-norm")
 
         cols_to_show = ["num_gab"]
-        if "agence" in df_latest.columns:
-            cols_to_show.append("agence")
-        if "region" in df_latest.columns:
-            cols_to_show.append("region")
-        cols_to_show.append("total_montant")
-        cols_to_show.append("seuil_critique")
+        if "agence" in df_latest.columns: cols_to_show.append("agence")
+        if "region" in df_latest.columns: cols_to_show.append("region")
+        cols_to_show += ["total_montant","seuil_critique"]
 
         display_df = df_latest[cols_to_show].copy().reset_index(drop=True)
         display_df["status_html"] = display_df.apply(
@@ -236,24 +201,13 @@ if tab == "Tableau de bord analytique":
 
         st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
         for _, row in display_df.iterrows():
-            n_cols = 2
-            if "agence" in row.index:
-                n_cols += 1
-            if "region" in row.index:
-                n_cols += 1
-            n_cols += 1
+            n_cols = 2 + ("agence" in row.index) + ("region" in row.index) + 2
             cols = st.columns(n_cols)
             col_idx = 0
-            cols[col_idx].write(row["num_gab"])
-            col_idx += 1
-            if "agence" in row.index:
-                cols[col_idx].write(row.get("agence","-"))
-                col_idx += 1
-            if "region" in row.index:
-                cols[col_idx].write(row.get("region","-"))
-                col_idx += 1
-            cols[col_idx].write(f"{row['total_montant']/1000:,.0f} K MAD")
-            col_idx += 1
+            cols[col_idx].write(row["num_gab"]); col_idx+=1
+            if "agence" in row.index: cols[col_idx].write(row.get("agence","-")); col_idx+=1
+            if "region" in row.index: cols[col_idx].write(row.get("region","-")); col_idx+=1
+            cols[col_idx].write(f"{row['total_montant']/1000:,.0f} K MAD"); col_idx+=1
             cols[col_idx].markdown(row["status_html"], unsafe_allow_html=True)
     else:
         st.info("Aucune donnée disponible pour les KPIs et alertes.")
@@ -285,26 +239,20 @@ if tab == "Prévisions LSTM 20 GAB":
                 model = lstm_models[gab_selected]
 
                 y_scaled = scaler.transform(df_gab[['y']].values)
-                X = []
-                for i in range(len(y_scaled) - n_steps):
-                    X.append(y_scaled[i:i+n_steps])
-                X = np.array(X).reshape(-1, n_steps, 1)
-
+                X = np.array([y_scaled[i:i+n_steps] for i in range(len(y_scaled)-n_steps)]).reshape(-1,n_steps,1)
                 y_pred_scaled = model.predict(X, verbose=0)
                 y_pred = scaler.inverse_transform(y_pred_scaled)
                 y_true = df_gab['y'].values[n_steps:]
                 dates = df_gab['ds'][n_steps:]
 
-                last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
+                last_seq = y_scaled[-n_steps:].reshape(1,n_steps,1)
                 future_preds = []
                 future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(period_forecast)]
-
                 for _ in range(period_forecast):
-                    pred_scaled = model.predict(last_sequence, verbose=0)
-                    pred = scaler.inverse_transform(pred_scaled)[0,0]
-                    pred_adjusted = pred * (1 + variation/100)
-                    future_preds.append(pred_adjusted/1000)
-                    last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
+                    pred_scaled = model.predict(last_seq, verbose=0)
+                    pred = scaler.inverse_transform(pred_scaled)[0,0]*(1+variation/100)
+                    future_preds.append(pred/1000)
+                    last_seq = np.concatenate([last_seq[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Montant réel"))
@@ -322,3 +270,4 @@ if tab == "Prévisions LSTM 20 GAB":
 
             except Exception as e:
                 st.error(f"Erreur lors des prévisions: {e}")
+
