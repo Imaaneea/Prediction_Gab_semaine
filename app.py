@@ -43,7 +43,7 @@ def load_data():
             content = f.read()
         with open("df_weekly_clean_clean.csv", "w", encoding="utf-8") as f:
             f.write(content)
-        df = pd.read_csv("df_weekly_clean_clean.csv", sep=",", on_bad_lines="skip")
+        df = pd.read_csv("df_weekly_clean_clean.csv", sep=";", on_bad_lines="skip")
         df.columns = df.columns.str.strip()
     except Exception as e:
         st.error(f"Erreur lors de la lecture du CSV : {e}")
