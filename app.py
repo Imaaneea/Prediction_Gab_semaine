@@ -334,6 +334,7 @@ if tab == "Tableau de bord analytique":
             cols[3].write(f"{row['total_montant']/1000:,.0f} K MAD")
             cols[4].markdown(row["status_html"], unsafe_allow_html=True)
 
+
 # ========================================
 # Prévisions LSTM
 # ========================================
@@ -361,10 +362,7 @@ if tab == "Prévisions LSTM 20 GAB":
                 model = lstm_models[gab_selected]
 
                 y_scaled = scaler.transform(df_gab[['y']].values)
-                X = []
-                for i in range(len(y_scaled) - n_steps):
-                    X.append(y_scaled[i:i+n_steps])
-                X = np.array(X).reshape(-1, n_steps, 1)
+                X = np.array([y_scaled[i:i+n_steps] for i in range(len(y_scaled)-n_steps)]).reshape(-1, n_steps, 1)
 
                 y_pred_scaled = model.predict(X, verbose=0)
                 y_pred = scaler.inverse_transform(y_pred_scaled)
