@@ -104,8 +104,8 @@ lstm_models, lstm_scalers = load_lstm_models()
 # ========================================
 st.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.sidebar.title("CashGAB")
-st.sidebar.markdown("Solution de gestion proactive du cash")
-tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
+st.sidebar.markdown("Solution de gestion proactive des GABs")
+tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions des GAB"])
 
 # Global filters (applied on tab1)
 st.sidebar.markdown("---")
