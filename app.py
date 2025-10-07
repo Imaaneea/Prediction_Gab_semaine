@@ -112,11 +112,11 @@ st.sidebar.markdown("Période (TDB)")
 date_debut = st.sidebar.date_input("Date début", date_min)
 date_fin = st.sidebar.date_input("Date fin", date_max)
 
-# Seuil critique
+# Seuil critique (modifiable par l'utilisateur)
 st.sidebar.markdown("---")
-seuil_user = st.sidebar.number_input("Seuil critique (MAD) - facultatif", value=0, step=10000)
+seuil_critique = st.sidebar.number_input("Seuil critique (MAD)", value=0, step=10000)
 
-# Apply filters
+# Filter data
 df_filtered = df.copy()
 if region_filter != "Toutes":
     df_filtered = df_filtered[df_filtered["region"] == region_filter]
@@ -135,32 +135,19 @@ if tab == "Tableau de bord analytique":
     nombre_operations = df_filtered["total_nombre"].sum() if "total_nombre" in df_filtered.columns else 0
     nb_gabs = df_filtered["num_gab"].nunique() if "num_gab" in df_filtered.columns else 0
 
-    # Dernière semaine par GAB
+    # --- KPIs ---
     df_latest = df_filtered.loc[df_filtered.groupby('num_gab')['ds'].idxmax()].copy() if ("num_gab" in df_filtered.columns and not df_filtered.empty) else pd.DataFrame()
-
-    # Calcul du seuil critique par GAB si l'utilisateur n'a rien saisi
-    if seuil_user > 0:
-        seuil_critique = seuil_user
+    if seuil_critique == 0 and not df_latest.empty:
+        # par défaut : moyenne annuelle pour chaque GAB
+        df_latest["moyenne_hb"] = df_filtered.groupby("num_gab")["total_montant"].transform("mean")
+        df_latest["seuil_critique"] = df_latest["moyenne_hb"]
     else:
-        seuil_critique = df_filtered.groupby("num_gab")["total_montant"].mean().mean()
+        df_latest["seuil_critique"] = seuil_critique
 
-    # Ajouter le statut
-    def status_label(val):
-        if val < seuil_critique:
-            return ("Critique", "badge-crit")
-        elif val < 2*seuil_critique:
-            return ("Alerte", "badge-alert")
-        else:
-            return ("Normal", "badge-norm")
-
-    if not df_latest.empty:
-        df_latest["status"] = df_latest["total_montant"].apply(lambda x: status_label(x)[0])
-
-    nb_critique = df_latest[df_latest["status"]=="Critique"]["num_gab"].nunique() if not df_latest.empty else 0
-    nb_alerte = df_latest[df_latest["status"]=="Alerte"]["num_gab"].nunique() if not df_latest.empty else 0
+    nb_critique = df_latest[df_latest["total_montant"] < df_latest["seuil_critique"]]["num_gab"].nunique() if not df_latest.empty else 0
+    nb_alerte = df_latest[(df_latest["total_montant"] >= df_latest["seuil_critique"]) & (df_latest["total_montant"] < 2*df_latest["seuil_critique"])]["num_gab"].nunique() if not df_latest.empty else 0
     dispo_proxy = (df_latest.shape[0] - nb_critique) / df_latest.shape[0] * 100 if not df_latest.empty else 100.0
 
-    # --- KPIs ---
     k1, k2, k3, k4 = st.columns([2,2,2,2])
     k1.markdown(f"""
         <div class="kpi-card">
@@ -192,7 +179,7 @@ if tab == "Tableau de bord analytique":
     """, unsafe_allow_html=True)
 
     # --- Evolution des retraits ---
-    st.markdown("### Evolution des retraits (analyse détaillée)")
+    st.markdown("### Evolution des retraits")
     if not df_filtered.empty:
         df_evol = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
         fig_evol = go.Figure()
@@ -208,29 +195,50 @@ if tab == "Tableau de bord analytique":
         )
         st.plotly_chart(fig_evol, use_container_width=True)
 
-    # --- Fiches réseau ---
-    st.markdown("### Fiches réseau (aperçu des GABs)")
+    # --- Répartition régionale & évolution ---
+    st.markdown("### Répartition régionale & évolution")
+    if not df_filtered.empty:
+        df_region_bar = df_filtered.groupby("region")["total_montant"].sum().reset_index().sort_values("total_montant", ascending=False)
+        fig_bar = go.Figure(go.Bar(
+            x=df_region_bar["region"],
+            y=df_region_bar["total_montant"]/1000,
+            text=(df_region_bar["total_montant"]/1000).round(0),
+            textposition='auto',
+            marker_color='lightskyblue'
+        ))
+        fig_bar.update_layout(title="Montants totaux retirés par région (K MAD)")
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    # --- Fiches réseau / alertes ---
+    st.markdown("### Alertes récentes et fiches réseau")
     if not df_latest.empty:
+
+        def status_label(val, seuil):
+            if val < seuil:
+                return ("Critique", "badge-crit")
+            elif val < 2*seuil:
+                return ("Alerte", "badge-alert")
+            else:
+                return ("Normal", "badge-norm")
+
         cols_to_show = ["num_gab"]
         if "agence" in df_latest.columns:
             cols_to_show.append("agence")
         if "region" in df_latest.columns:
             cols_to_show.append("region")
         cols_to_show.append("total_montant")
-        cols_to_show.append("status")
 
         display_df = df_latest[cols_to_show].copy().reset_index(drop=True)
-        display_df["status_html"] = display_df["total_montant"].apply(lambda x: f'<span class="{status_label(x)[1]}">{status_label(x)[0]}</span>')
+        display_df["status_html"] = display_df.apply(lambda x: f'<span class="{status_label(x["total_montant"], x["seuil_critique"])[1]}">{status_label(x["total_montant"], x["seuil_critique"])[0]}</span>', axis=1)
 
         st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
-
         for _, row in display_df.iterrows():
-            n_cols = 2  # num_gab + total_montant
+            n_cols = 2
             if "agence" in row.index:
                 n_cols += 1
             if "region" in row.index:
                 n_cols += 1
-            n_cols += 1  # statut
+            n_cols += 1
             cols = st.columns(n_cols)
             col_idx = 0
             cols[col_idx].write(row["num_gab"])
@@ -246,20 +254,6 @@ if tab == "Tableau de bord analytique":
             cols[col_idx].markdown(row["status_html"], unsafe_allow_html=True)
     else:
         st.info("Aucune fiche réseau disponible pour la sélection.")
-
-    # --- Répartition régionale ---
-    st.markdown("### Répartition régionale & évolution")
-    if not df_filtered.empty:
-        df_region_bar = df_filtered.groupby("region")["total_montant"].sum().reset_index().sort_values("total_montant", ascending=False)
-        fig_bar = go.Figure(go.Bar(
-            x=df_region_bar["region"],
-            y=df_region_bar["total_montant"]/1000,
-            text=(df_region_bar["total_montant"]/1000).round(0),
-            textposition='auto',
-            marker_color='lightskyblue'
-        ))
-        fig_bar.update_layout(title="Montants totaux retirés par région (K MAD)")
-        st.plotly_chart(fig_bar, use_container_width=True)
 
 # ========================================
 # Prévisions LSTM
