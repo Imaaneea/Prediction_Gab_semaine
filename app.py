@@ -11,7 +11,6 @@ import numpy as np
 # ========================================
 st.set_page_config(page_title="CashGAB : Dashboard GAB", layout="wide")
 
-# CSS pour design moderne
 st.markdown(
     """
     <style>
@@ -37,7 +36,7 @@ def load_data():
     try:
         df = pd.read_csv(
             "df_weekly_clean.csv",
-            encoding="utf-8-sig",  # <-- gère le BOM
+            encoding="utf-8-sig",  # gère le BOM
             sep=",",
             on_bad_lines="skip"
         )
@@ -50,7 +49,11 @@ def load_data():
         return pd.DataFrame()
 
     # Conversion date
-    if "ds" in df.columns: df["ds"] = pd.to_datetime(df["ds"], errors="coerce") # invalid parsing -> NaT else: st.error("La colonne 'ds' est absente du CSV.") return pd.DataFrame()
+    if "ds" in df.columns: 
+        df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    else: 
+        st.error("La colonne 'ds' est absente du CSV.")
+        return pd.DataFrame()
 
     if "num_gab" in df.columns:
         df["num_gab"] = df["num_gab"].astype(str)
@@ -164,6 +167,22 @@ if tab == "Tableau de bord analytique":
             <div class="kpi-sub">GAB au-dessus du seuil</div>
         </div>
     """, unsafe_allow_html=True)
+
+    # --- Badges Critique / Alerte / Normal ---
+    st.markdown("### Statut des GAB (seuil critique)")
+    if not df_latest.empty:
+        def badge_gab(row):
+            if row["total_montant"] < seuil_critique:
+                return f'<span class="badge-crit">{row["num_gab"]} Critique</span>'
+            elif row["total_montant"] < 2*seuil_critique:
+                return f'<span class="badge-alert">{row["num_gab"]} Alerte</span>'
+            else:
+                return f'<span class="badge-norm">{row["num_gab"]} Normal</span>'
+
+        badges_html = "<br>".join(df_latest.apply(badge_gab, axis=1).tolist())
+        st.markdown(badges_html, unsafe_allow_html=True)
+    else:
+        st.info("Aucune donnée pour les GAB à afficher.")
 
     # --- Répartition régionale ---
     st.markdown("### Répartition régionale & évolution")
