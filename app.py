@@ -34,12 +34,7 @@ st.markdown(
 @st.cache_data
 def load_data():
     try:
-        df = pd.read_csv(
-            "df_weekly_clean.csv",
-            encoding="utf-8-sig",
-            sep=",",
-            on_bad_lines="skip"
-        )
+        df = pd.read_csv("df_weekly_clean.csv", encoding="utf-8-sig", sep=",", on_bad_lines="skip")
         df.columns = df.columns.str.strip()
     except Exception as e:
         st.error(f"Erreur lors de la lecture du CSV : {e}")
@@ -112,17 +107,15 @@ st.sidebar.markdown("Période (TDB)")
 date_debut = st.sidebar.date_input("Date début", date_min)
 date_fin = st.sidebar.date_input("Date fin", date_max)
 
-# Seuil critique (modifiable par l'utilisateur)
-st.sidebar.markdown("---")
-seuil_critique = st.sidebar.number_input("Seuil critique (MAD)", value=0, step=10000)
-
-# Filter data
 df_filtered = df.copy()
 if region_filter != "Toutes":
     df_filtered = df_filtered[df_filtered["region"] == region_filter]
 if agence_filter != "Toutes":
     df_filtered = df_filtered[df_filtered["agence"] == agence_filter]
 df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) & (df_filtered["ds"] <= pd.to_datetime(date_fin))]
+
+# Seuil critique personnalisable
+seuil_input = st.sidebar.number_input("Seuil critique (MAD)", value=0, step=10000)
 
 # ========================================
 # Tableau de bord analytique
@@ -134,49 +127,6 @@ if tab == "Tableau de bord analytique":
     montant_total = df_filtered["total_montant"].sum() if "total_montant" in df_filtered.columns else 0
     nombre_operations = df_filtered["total_nombre"].sum() if "total_nombre" in df_filtered.columns else 0
     nb_gabs = df_filtered["num_gab"].nunique() if "num_gab" in df_filtered.columns else 0
-
-    # --- KPIs ---
-    df_latest = df_filtered.loc[df_filtered.groupby('num_gab')['ds'].idxmax()].copy() if ("num_gab" in df_filtered.columns and not df_filtered.empty) else pd.DataFrame()
-    if seuil_critique == 0 and not df_latest.empty:
-        # par défaut : moyenne annuelle pour chaque GAB
-        df_latest["moyenne_hb"] = df_filtered.groupby("num_gab")["total_montant"].transform("mean")
-        df_latest["seuil_critique"] = df_latest["moyenne_hb"]
-    else:
-        df_latest["seuil_critique"] = seuil_critique
-
-    nb_critique = df_latest[df_latest["total_montant"] < df_latest["seuil_critique"]]["num_gab"].nunique() if not df_latest.empty else 0
-    nb_alerte = df_latest[(df_latest["total_montant"] >= df_latest["seuil_critique"]) & (df_latest["total_montant"] < 2*df_latest["seuil_critique"])]["num_gab"].nunique() if not df_latest.empty else 0
-    dispo_proxy = (df_latest.shape[0] - nb_critique) / df_latest.shape[0] * 100 if not df_latest.empty else 100.0
-
-    k1, k2, k3, k4 = st.columns([2,2,2,2])
-    k1.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Montant total retraits</div>
-            <div class="kpi-value">{montant_total/1_000_000:,.2f} M MAD</div>
-            <div class="kpi-sub">Période filtrée</div>
-        </div>
-    """, unsafe_allow_html=True)
-    k2.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Nombre total opérations</div>
-            <div class="kpi-value">{nombre_operations:,.0f}</div>
-            <div class="kpi-sub">Période filtrée</div>
-        </div>
-    """, unsafe_allow_html=True)
-    k3.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Nombre GAB (réseau)</div>
-            <div class="kpi-value">{nb_gabs}</div>
-            <div class="kpi-sub">Filtré</div>
-        </div>
-    """, unsafe_allow_html=True)
-    k4.markdown(f"""
-        <div class="kpi-card">
-            <div class="kpi-title">Disponibilité (proxy)</div>
-            <div class="kpi-value">{dispo_proxy:.0f}%</div>
-            <div class="kpi-sub">GAB au-dessus du seuil</div>
-        </div>
-    """, unsafe_allow_html=True)
 
     # --- Evolution des retraits ---
     st.markdown("### Evolution des retraits")
@@ -194,24 +144,73 @@ if tab == "Tableau de bord analytique":
             yaxis_title="Montant retiré (K MAD)"
         )
         st.plotly_chart(fig_evol, use_container_width=True)
+    else:
+        st.info("Pas de données pour l'évolution des retraits sur la période sélectionnée.")
 
     # --- Répartition régionale & évolution ---
     st.markdown("### Répartition régionale & évolution")
     if not df_filtered.empty:
-        df_region_bar = df_filtered.groupby("region")["total_montant"].sum().reset_index().sort_values("total_montant", ascending=False)
-        fig_bar = go.Figure(go.Bar(
-            x=df_region_bar["region"],
-            y=df_region_bar["total_montant"]/1000,
-            text=(df_region_bar["total_montant"]/1000).round(0),
-            textposition='auto',
-            marker_color='lightskyblue'
-        ))
-        fig_bar.update_layout(title="Montants totaux retirés par région (K MAD)")
-        st.plotly_chart(fig_bar, use_container_width=True)
+        df_region_pie = df_filtered.groupby("region")["total_montant"].mean().reset_index().sort_values("total_montant", ascending=False)
+        if not df_region_pie.empty:
+            fig_pie = go.Figure(go.Bar(
+                x=df_region_pie["region"],
+                y=df_region_pie["total_montant"]/1000,
+                text=(df_region_pie["total_montant"]/1000).round(1),
+                textposition='auto',
+                marker_color='rgb(26, 118, 255)'
+            ))
+            fig_pie.update_layout(title="Montant moyen hebdo par région (K MAD)", xaxis_title="Région", yaxis_title="Montant moyen (K MAD)")
+            st.plotly_chart(fig_pie, use_container_width=True)
+    else:
+        st.info("Aucune donnée pour la période / filtres sélectionnés.")
 
-    # --- Fiches réseau / alertes ---
-    st.markdown("### Alertes récentes et fiches réseau")
+    # --- KPIs ---
+    df_latest = df_filtered.loc[df_filtered.groupby('num_gab')['ds'].idxmax()].copy() if ("num_gab" in df_filtered.columns and not df_filtered.empty) else pd.DataFrame()
     if not df_latest.empty:
+        # Calcul du seuil critique si non fourni
+        if seuil_input == 0:
+            df_avg = df_filtered.groupby("num_gab")["total_montant"].mean().reset_index()
+            df_latest = df_latest.merge(df_avg, on="num_gab", suffixes=('', '_avg'))
+            df_latest["seuil_critique"] = df_latest["total_montant_avg"]
+        else:
+            df_latest["seuil_critique"] = seuil_input
+
+        nb_critique = df_latest[df_latest["total_montant"] < df_latest["seuil_critique"]]["num_gab"].nunique()
+        nb_alerte = df_latest[(df_latest["total_montant"] >= df_latest["seuil_critique"]) & (df_latest["total_montant"] < 2*df_latest["seuil_critique"])]["num_gab"].nunique()
+        dispo_proxy = (df_latest.shape[0] - nb_critique) / df_latest.shape[0] * 100
+
+        k1, k2, k3, k4 = st.columns([2,2,2,2])
+        k1.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-title">Montant total retraits</div>
+                <div class="kpi-value">{montant_total/1_000_000:,.2f} M MAD</div>
+                <div class="kpi-sub">Période filtrée</div>
+            </div>
+        """, unsafe_allow_html=True)
+        k2.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-title">Nombre total opérations</div>
+                <div class="kpi-value">{nombre_operations:,.0f}</div>
+                <div class="kpi-sub">Période filtrée</div>
+            </div>
+        """, unsafe_allow_html=True)
+        k3.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-title">Nombre GAB (réseau)</div>
+                <div class="kpi-value">{nb_gabs}</div>
+                <div class="kpi-sub">Filtré</div>
+            </div>
+        """, unsafe_allow_html=True)
+        k4.markdown(f"""
+            <div class="kpi-card">
+                <div class="kpi-title">Disponibilité (proxy)</div>
+                <div class="kpi-value">{dispo_proxy:.0f}%</div>
+                <div class="kpi-sub">GAB au-dessus du seuil</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # --- Fiches réseau / alertes ---
+        st.markdown("### Alertes récentes / Fiches réseau")
 
         def status_label(val, seuil):
             if val < seuil:
@@ -227,9 +226,13 @@ if tab == "Tableau de bord analytique":
         if "region" in df_latest.columns:
             cols_to_show.append("region")
         cols_to_show.append("total_montant")
+        cols_to_show.append("seuil_critique")
 
         display_df = df_latest[cols_to_show].copy().reset_index(drop=True)
-        display_df["status_html"] = display_df.apply(lambda x: f'<span class="{status_label(x["total_montant"], x["seuil_critique"])[1]}">{status_label(x["total_montant"], x["seuil_critique"])[0]}</span>', axis=1)
+        display_df["status_html"] = display_df.apply(
+            lambda x: f'<span class="{status_label(x["total_montant"], x["seuil_critique"])[1]}">{status_label(x["total_montant"], x["seuil_critique"])[0]}</span>',
+            axis=1
+        )
 
         st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
         for _, row in display_df.iterrows():
@@ -253,7 +256,7 @@ if tab == "Tableau de bord analytique":
             col_idx += 1
             cols[col_idx].markdown(row["status_html"], unsafe_allow_html=True)
     else:
-        st.info("Aucune fiche réseau disponible pour la sélection.")
+        st.info("Aucune donnée disponible pour les KPIs et alertes.")
 
 # ========================================
 # Prévisions LSTM
