@@ -245,7 +245,7 @@ df_filtered = df_filtered[(df_filtered["ds"] >= pd.to_datetime(date_debut)) & (d
 # Tableau de bord analytique
 # ========================================
 if tab == "Tableau de bord analytique":
-    # st.title("CashGAB — Tableau de bord analytique")
+    st.title("CashGAB — Tableau de bord analytique")
     st.markdown("Vue d’ensemble du réseau et KPIs interactifs")
 
     # KPI principaux
@@ -339,7 +339,7 @@ if tab == "Tableau de bord analytique":
 # Prévisions LSTM
 # ========================================
 if tab == "Prévisions des GABs":
-    st.title("Prévisions LSTM - 20 GAB")
+    st.title("Prévisions des GABs")
     st.sidebar.header("Paramètres de simulation")
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
 
