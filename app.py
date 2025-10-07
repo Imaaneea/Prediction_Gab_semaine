@@ -5,10 +5,9 @@ import glob
 from tensorflow.keras.models import load_model
 import joblib
 import numpy as np
-import os
 
 # ========================================
-# Configuration page & style
+# Page config & style
 # ========================================
 st.set_page_config(page_title="CashGAB : Dashboard GAB", layout="wide")
 
@@ -30,46 +29,41 @@ st.markdown(
 )
 
 # ========================================
-# Load CSV robust (supprimer BOM)
+# Fonction pour charger le CSV proprement
 # ========================================
 @st.cache_data
-def load_data():
-    if not os.path.exists("df_weekly_clean.csv"):
-        st.error("Le fichier df_weekly_clean.csv est introuvable.")
-        return pd.DataFrame()
-
+def load_data(file_path="df_weekly_clean.csv"):
     try:
-        with open("df_weekly_clean.csv", "r", encoding="utf-8-sig") as f:
+        with open(file_path, "r", encoding="utf-8-sig") as f:
             content = f.read()
-        with open("df_weekly_clean_clean.csv", "w", encoding="utf-8") as f:
-            f.write(content)
-        df = pd.read_csv("df_weekly_clean_clean.csv", sep=";", on_bad_lines="skip")
+        # On écrit dans un buffer temporaire pour pandas
+        from io import StringIO
+        df = pd.read_csv(StringIO(content))
         df.columns = df.columns.str.strip()
     except Exception as e:
         st.error(f"Erreur lors de la lecture du CSV : {e}")
         return pd.DataFrame()
-
+    
     if df.empty:
         st.error("Le fichier CSV est vide.")
         return pd.DataFrame()
-
-    # Convert date
+    
     if "ds" in df.columns:
         df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
     else:
         st.error("La colonne 'ds' est absente du CSV.")
         return pd.DataFrame()
-
+    
     if "num_gab" in df.columns:
         df["num_gab"] = df["num_gab"].astype(str)
-
+    
     df["week_day"] = df["ds"].dt.dayofweek
     df["week"] = df["ds"].dt.isocalendar().week
     df["year"] = df["ds"].dt.year
-
+    
     if "y" not in df.columns and "total_montant" in df.columns:
         df["y"] = df["total_montant"]
-
+    
     return df
 
 df = load_data()
@@ -77,7 +71,7 @@ if df.empty:
     st.stop()
 
 # ========================================
-# Load LSTM models + scalers
+# Charger modèles LSTM + scalers
 # ========================================
 @st.cache_data
 def load_lstm_models():
@@ -95,14 +89,14 @@ def load_lstm_models():
 lstm_models, lstm_scalers = load_lstm_models()
 
 # ========================================
-# Sidebar & Navigation
+# Sidebar & navigation
 # ========================================
 st.sidebar.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.sidebar.title("CashGAB")
 st.sidebar.markdown("Solution de gestion proactive des GABs")
 tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
 
-# Global filters
+# Filtres globaux
 st.sidebar.markdown("---")
 regions = df["region"].dropna().unique() if "region" in df.columns else []
 region_filter = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()) if len(regions)>0 else ["Toutes"])
@@ -110,7 +104,7 @@ df_region = df[df["region"] == region_filter] if region_filter != "Toutes" else 
 agences = df_region["agence"].dropna().unique() if "agence" in df_region.columns else []
 agence_filter = st.sidebar.selectbox("Agence", ["Toutes"] + sorted(agences.tolist()) if len(agences)>0 else ["Toutes"])
 
-# Date filter
+# Filtre date
 date_min = df["ds"].min()
 date_max = df["ds"].max()
 st.sidebar.markdown("Période (TDB)")
@@ -185,33 +179,16 @@ if tab == "Tableau de bord analytique":
             else:
                 return ("Normal", "badge-norm")
 
-        cols_to_show = ["num_gab"]
-        if "agence" in df_latest.columns:
-            cols_to_show.append("agence")
-        if "region" in df_latest.columns:
-            cols_to_show.append("region")
-        cols_to_show.append("total_montant")
-
-        display_df = df_latest[cols_to_show].copy().reset_index(drop=True)
+        display_df = df_latest[["num_gab","agence","region","total_montant"]].copy()
         display_df["status_html"] = display_df["total_montant"].apply(lambda x: f'<span class="{status_label(x)[1]}">{status_label(x)[0]}</span>')
 
-        st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
-
         for _, row in display_df.iterrows():
-            n_cols = len(cols_to_show)
-            cols = st.columns(n_cols)
-            col_idx = 0
-            cols[col_idx].write(row["num_gab"])
-            col_idx += 1
-            if "agence" in row.index:
-                cols[col_idx].write(row.get("agence","-"))
-                col_idx += 1
-            if "region" in row.index:
-                cols[col_idx].write(row.get("region","-"))
-                col_idx += 1
-            cols[col_idx].write(f"{row['total_montant']/1000:,.0f} K MAD")
-            col_idx += 1
-            cols[col_idx].markdown(row["status_html"], unsafe_allow_html=True)
+            cols = st.columns(5)
+            cols[0].write(row["num_gab"])
+            cols[1].write(row["agence"])
+            cols[2].write(row["region"])
+            cols[3].write(f"{row['total_montant']/1000:,.0f} K MAD")
+            cols[4].markdown(row["status_html"], unsafe_allow_html=True)
     else:
         st.info("Aucune fiche réseau disponible pour la sélection.")
 
@@ -238,7 +215,7 @@ if tab == "Prévisions LSTM 20 GAB":
         st.warning("Aucun GAB disponible avec modèles LSTM.")
     else:
         gab_selected = st.sidebar.selectbox("Sélectionner un GAB", gab_options)
-        period_forecast = st.sidebar.selectbox("Période de prévision (semaines)", [1,2,4,6])
+        period_forecast = st.sidebar.selectbox("Période de prévision", [1,2,4,6])
         variation = st.sidebar.slider("Facteur de variation (%)", -50,50,0)
 
         df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
@@ -253,23 +230,27 @@ if tab == "Prévisions LSTM 20 GAB":
                 model = lstm_models[gab_selected]
 
                 y_scaled = scaler.transform(df_gab[['y']].values)
-                X = np.array([y_scaled[i:i+n_steps] for i in range(len(y_scaled)-n_steps)]).reshape(-1, n_steps, 1)
+                X = []
+                for i in range(len(y_scaled) - n_steps):
+                    X.append(y_scaled[i:i+n_steps])
+                X = np.array(X).reshape(-1, n_steps, 1)
 
                 y_pred_scaled = model.predict(X, verbose=0)
                 y_pred = scaler.inverse_transform(y_pred_scaled)
                 y_true = df_gab['y'].values[n_steps:]
                 dates = df_gab['ds'][n_steps:]
 
-                # Prévisions futures
-                last_seq = y_scaled[-n_steps:].reshape(1, n_steps,1)
-                future_preds, future_dates = [], [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(period_forecast)]
-                for _ in range(period_forecast):
-                    pred_scaled = model.predict(last_seq, verbose=0)
-                    pred = scaler.inverse_transform(pred_scaled)[0,0] * (1+variation/100)
-                    future_preds.append(pred/1000)
-                    last_seq = np.concatenate([last_seq[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
+                last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
+                future_preds = []
+                future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(period_forecast)]
 
-                # Graphiques
+                for _ in range(period_forecast):
+                    pred_scaled = model.predict(last_sequence, verbose=0)
+                    pred = scaler.inverse_transform(pred_scaled)[0,0]
+                    pred_adjusted = pred * (1 + variation/100)
+                    future_preds.append(pred_adjusted/1000)
+                    last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
+
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Montant réel"))
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten()/1000, mode="lines+markers", name="Prédiction LSTM"))
@@ -277,7 +258,6 @@ if tab == "Prévisions LSTM 20 GAB":
                 fig_pred.update_layout(title=f"Prévision LSTM GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant retiré (K MAD)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
-                # Téléchargement CSV
                 df_csv = pd.DataFrame({
                     "ds": list(dates)+future_dates,
                     "y_true_kdh": list(y_true/1000)+[None]*period_forecast,
@@ -287,4 +267,3 @@ if tab == "Prévisions LSTM 20 GAB":
 
             except Exception as e:
                 st.error(f"Erreur lors des prévisions: {e}")
-
