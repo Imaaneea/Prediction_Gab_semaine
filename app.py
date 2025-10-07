@@ -92,7 +92,7 @@ st.sidebar.title("CashGAB")
 st.sidebar.markdown("Solution de gestion proactive des GABs")
 tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
 
-# Global filters
+# Filters
 regions = df["region"].dropna().unique() if "region" in df.columns else []
 region_filter = st.sidebar.selectbox("Région", ["Toutes"] + sorted(regions.tolist()) if len(regions)>0 else ["Toutes"])
 df_region = df[df["region"] == region_filter] if region_filter != "Toutes" else df.copy()
@@ -129,7 +129,7 @@ df_latest = df_filtered.loc[df_filtered.groupby('num_gab')['ds'].idxmax()].copy(
 if tab == "Tableau de bord analytique":
     st.title("CashGAB — Tableau de bord analytique")
 
-    # --- KPI ---
+    # KPI
     montant_total = df_filtered["total_montant"].sum() if "total_montant" in df_filtered.columns else 0
     nombre_operations = df_filtered["total_nombre"].sum() if "total_nombre" in df_filtered.columns else 0
     nb_gabs = df_filtered["num_gab"].nunique() if "num_gab" in df_filtered.columns else 0
@@ -142,37 +142,54 @@ if tab == "Tableau de bord analytique":
     k3.markdown(f"""<div class="kpi-card"><div class="kpi-title">Nombre GAB (réseau)</div><div class="kpi-value">{nb_gabs}</div><div class="kpi-sub">Filtré</div></div>""", unsafe_allow_html=True)
     k4.markdown(f"""<div class="kpi-card"><div class="kpi-title">Disponibilité (proxy)</div><div class="kpi-value">{dispo_proxy:.0f}%</div><div class="kpi-sub">GAB au-dessus du seuil</div></div>""", unsafe_allow_html=True)
 
-    # --- Alertes récentes ---
-    st.markdown("### Alertes récentes (dernier état des GABs)")
-    if not df_latest.empty:
-        df_latest["status"] = df_latest["total_montant"].apply(lambda x: "Critique" if x < seuil_critique else ("Alerte" if x < 2*seuil_critique else "Normal"))
-        alert_counts = df_latest["status"].value_counts()
-        fig_alert = go.Figure(go.Pie(labels=alert_counts.index, values=alert_counts.values, hole=0.4, marker=dict(colors=['#d32f2f','#f9a825','#2e7d32'])))
-        fig_alert.update_layout(title="Répartition des GAB par statut")
+    # --- Alertes (Stacked Bar) ---
+    st.markdown("### Alertes récentes par région")
+    if not df_latest.empty and "region" in df_latest.columns:
+        df_latest["status"] = df_latest["total_montant"].apply(
+            lambda x: "Critique" if x < seuil_critique else ("Alerte" if x < 2*seuil_critique else "Normal")
+        )
+        df_alert_region = df_latest.groupby(["region","status"])["num_gab"].count().reset_index()
+        df_pivot = df_alert_region.pivot(index="region", columns="status", values="num_gab").fillna(0)
+        fig_alert = go.Figure()
+        colors = {"Critique":"#d32f2f","Alerte":"#f9a825","Normal":"#2e7d32"}
+        for status in ["Critique","Alerte","Normal"]:
+            if status in df_pivot.columns:
+                fig_alert.add_trace(go.Bar(
+                    x=df_pivot.index,
+                    y=df_pivot[status],
+                    name=status,
+                    marker_color=colors[status]
+                ))
+        fig_alert.update_layout(barmode='stack', title="Nombre de GAB par statut et région", xaxis_title="Région", yaxis_title="Nombre de GAB")
         st.plotly_chart(fig_alert, use_container_width=True)
     else:
-        st.info("Aucune alerte disponible pour la période sélectionnée.")
+        st.info("Aucune alerte disponible.")
 
     # --- Evolution des retraits ---
-    st.markdown("### Evolution des retraits")
+    st.markdown("### Evolution hebdomadaire des retraits")
     if not df_filtered.empty:
         df_evol = df_filtered.groupby("ds")["total_montant"].sum().reset_index()
         fig_evol = go.Figure()
-        fig_evol.add_trace(go.Scatter(x=df_evol["ds"], y=df_evol["total_montant"]/1000, mode="lines+markers", name="Total retraits hebdo"))
+        fig_evol.add_trace(go.Scatter(x=df_evol["ds"], y=df_evol["total_montant"]/1000, mode="lines+markers", name="Total retraits"))
         fig_evol.update_layout(title="Evolution hebdomadaire des retraits (K MAD)", xaxis_title="Date", yaxis_title="Montant retiré (K MAD)")
         st.plotly_chart(fig_evol, use_container_width=True)
     else:
-        st.info("Pas de données pour l'évolution des retraits sur la période sélectionnée.")
+        st.info("Pas de données pour l'évolution des retraits.")
 
-    # --- Camembert répartition par région ---
-    st.markdown("### Répartition des retraits par région")
+    # --- Répartition des retraits par région (Bar horizontal) ---
+    st.markdown("### Montant moyen hebdo par région")
     if not df_filtered.empty and "region" in df_filtered.columns:
-        df_region_pie = df_filtered.groupby("region")["total_montant"].sum().reset_index().sort_values("total_montant", ascending=False)
-        fig_region = go.Figure(go.Pie(labels=df_region_pie["region"], values=(df_region_pie["total_montant"]/1000).round(2), hole=0.3))
-        fig_region.update_layout(title="Montant total des retraits par région (K MAD)")
-        st.plotly_chart(fig_region, use_container_width=True)
+        df_region_bar = df_filtered.groupby("region")["total_montant"].mean().sort_values().reset_index()
+        fig_bar = go.Figure(go.Bar(
+            x=df_region_bar["total_montant"]/1000,
+            y=df_region_bar["region"],
+            orientation='h',
+            marker_color='#0b5394'
+        ))
+        fig_bar.update_layout(title="Montant moyen hebdo par région (K MAD)", xaxis_title="Montant (K MAD)", yaxis_title="Région")
+        st.plotly_chart(fig_bar, use_container_width=True)
     else:
-        st.info("Aucune donnée régionale disponible pour la sélection.")
+        st.info("Pas de données pour la répartition régionale.")
 
     # --- Fiches réseau ---
     st.markdown("### Fiches réseau (aperçu des GABs)")
@@ -184,31 +201,19 @@ if tab == "Tableau de bord analytique":
                 return ("Alerte", "badge-alert")
             else:
                 return ("Normal", "badge-norm")
-
-        cols_to_show = ["num_gab"]
-        if "agence" in df_latest.columns:
-            cols_to_show.append("agence")
-        if "region" in df_latest.columns:
-            cols_to_show.append("region")
-        cols_to_show.append("total_montant")
-
+        cols_to_show = ["num_gab","agence","region","total_montant"]
         display_df = df_latest[cols_to_show].copy().reset_index(drop=True)
         display_df["status_html"] = display_df["total_montant"].apply(lambda x: f'<span class="{status_label(x)[1]}">{status_label(x)[0]}</span>')
 
-        st.write("Cliquez sur une ligne pour plus de détails (sélection simulée).")
         for _, row in display_df.iterrows():
-            n_cols = len(cols_to_show)
+            n_cols = 4
             cols = st.columns(n_cols)
-            col_idx = 0
-            for col_name in cols_to_show[:-1]:
-                if col_name == "total_montant":
-                    cols[col_idx].write(f"{row[col_name]/1000:,.0f} K MAD")
-                else:
-                    cols[col_idx].write(row[col_name])
-                col_idx += 1
-            cols[col_idx].markdown(row["status_html"], unsafe_allow_html=True)
+            cols[0].write(row["num_gab"])
+            cols[1].write(row.get("agence","-"))
+            cols[2].write(row.get("region","-"))
+            cols[3].markdown(f"{row['total_montant']/1000:,.0f} K MAD | {row['status_html']}", unsafe_allow_html=True)
     else:
-        st.info("Aucune fiche réseau disponible pour la sélection.")
+        st.info("Aucune fiche réseau disponible.")
 
 # ========================================
 # Prévisions LSTM
@@ -222,7 +227,7 @@ if tab == "Prévisions LSTM 20 GAB":
         st.warning("Aucun GAB disponible avec modèles LSTM.")
     else:
         gab_selected = st.sidebar.selectbox("Sélectionner un GAB", gab_options)
-        period_forecast = st.sidebar.selectbox("Période de prévision", [1,2,4,6])
+        period_forecast = st.sidebar.selectbox("Période de prévision (semaines)", [1,2,4,6])
         variation = st.sidebar.slider("Facteur de variation (%)", -50,50,0)
 
         df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
@@ -249,7 +254,6 @@ if tab == "Prévisions LSTM 20 GAB":
                 last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
                 future_preds = []
                 future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(period_forecast)]
-
                 for _ in range(period_forecast):
                     pred_scaled = model.predict(last_sequence, verbose=0)
                     pred = scaler.inverse_transform(pred_scaled)[0,0]
@@ -263,5 +267,13 @@ if tab == "Prévisions LSTM 20 GAB":
                 fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name="Forecast"))
                 fig_pred.update_layout(title=f"Prévision retraits GAB {gab_selected} (K MAD)", xaxis_title="Date", yaxis_title="Montant")
                 st.plotly_chart(fig_pred, use_container_width=True)
+
+                df_csv = pd.DataFrame({
+                    "ds": list(dates)+future_dates,
+                    "y_true_kdh": list(y_true/1000)+[None]*period_forecast,
+                    "y_pred_kdh": list(y_pred.flatten()/1000)+future_preds
+                })
+                st.download_button("Télécharger CSV", df_csv.to_csv(index=False), file_name=f"pred_{gab_selected}.csv", mime="text/csv")
+
             except Exception as e:
                 st.error(f"Erreur lors de la prévision : {e}")
