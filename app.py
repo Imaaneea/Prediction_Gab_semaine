@@ -377,20 +377,20 @@ if tab == "Prévisions des GABs":
                     pred_scaled = model.predict(last_sequence, verbose=0)
                     pred = scaler.inverse_transform(pred_scaled)[0,0]
                     pred_adjusted = pred * (1 + variation/100)
-                    future_preds.append(pred_adjusted/1000)
+                    future_preds.append(pred_adjusted)
                     last_sequence = np.concatenate([last_sequence[:,1:,:], pred_scaled.reshape(1,1,1)], axis=1)
 
                 fig_pred = go.Figure()
-                fig_pred.add_trace(go.Scatter(x=dates, y=y_true/1000, mode="lines+markers", name="Montant réel"))
-                fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten()/1000, mode="lines+markers", name="Prédiction LSTM"))
+                fig_pred.add_trace(go.Scatter(x=dates, y=y_true, mode="lines+markers", name="Montant réel"))
+                fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten(), mode="lines+markers", name="Prédiction LSTM"))
                 fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name=f"Prévisions ajustées ({variation}%)"))
-                fig_pred.update_layout(title=f"Prévision LSTM GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant retiré (K MAD)")
+                fig_pred.update_layout(title=f"Prévision LSTM GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant retiré (MAD)")
                 st.plotly_chart(fig_pred, use_container_width=True)
 
                 df_csv = pd.DataFrame({
                     "ds": list(dates)+future_dates,
-                    "y_true_kdh": list(y_true/1000)+[None]*period_forecast,
-                    "y_pred_kdh": list(y_pred.flatten()/1000)+future_preds
+                    "y_true_dh": list(y_true)+[None]*period_forecast,
+                    "y_pred_dh": list(y_pred.flatten())+future_preds
                 })
                 st.download_button("Télécharger CSV", df_csv.to_csv(index=False), file_name=f"pred_{gab_selected}.csv", mime="text/csv")
 
