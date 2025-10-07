@@ -48,7 +48,12 @@ st.markdown(
 # ========================================
 @st.cache_data
 def load_data():
-    df = pd.read_csv("df_weekly_clean.csv", parse_dates=["ds"])
+    df = pd.read_csv(
+            "df_weekly_clean.csv",
+            encoding="utf-8",
+            sep=",",           # change en ';' si ton fichier utilise des points-virgules
+            on_bad_lines="skip"
+        )
     # Force types & fallback
     if "num_gab" in df.columns:
         df["num_gab"] = df["num_gab"].astype(str)
