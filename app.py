@@ -90,7 +90,7 @@ lstm_models, lstm_scalers = load_lstm_models()
 st.sidebar.image("https://www.albaridbank.ma/themes/baridbank/logo.png", width=250)
 st.sidebar.title("CashGAB")
 st.sidebar.markdown("Solution de gestion proactive des GABs")
-tab = st.sidebar.radio("Navigation", ["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
+tab = st.sidebar.radio(["Tableau de bord analytique", "Prévisions LSTM 20 GAB"])
 
 # Filters
 regions = df["region"].dropna().unique() if "region" in df.columns else []
@@ -219,7 +219,7 @@ if tab == "Tableau de bord analytique":
 # Prévisions LSTM
 # ========================================
 if tab == "Prévisions LSTM 20 GAB":
-    st.title("Prévisions LSTM - 20 GAB")
+    st.title("Prévisions 20 GAB")
     st.sidebar.header("Paramètres de simulation")
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
 
