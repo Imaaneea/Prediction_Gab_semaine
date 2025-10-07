@@ -338,7 +338,7 @@ if tab == "Tableau de bord analytique":
 # ========================================
 # Prévisions LSTM
 # ========================================
-if tab == "Prévisions LSTM 20 GAB":
+if tab == "Prévisions des GABs":
     st.title("Prévisions LSTM - 20 GAB")
     st.sidebar.header("Paramètres de simulation")
     gab_options = [gab for gab in sorted(df["num_gab"].unique()) if gab in lstm_models]
