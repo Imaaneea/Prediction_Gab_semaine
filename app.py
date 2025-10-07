@@ -69,7 +69,6 @@ def load_data():
     df["week_day"] = df["ds"].dt.dayofweek
     df["week"] = df["ds"].dt.isocalendar().week
     df["year"] = df["ds"].dt.year
-    # Assurez-vous que la colonne 'y' existe pour les prédictions
     if 'y' not in df.columns and 'total_montant' in df.columns:
         df['y'] = df['total_montant']
     return df
@@ -89,7 +88,7 @@ def load_lstm_models():
             models[gab_id] = load_model(model_file, compile=False)
             scalers[gab_id] = joblib.load(scaler_file)
         except Exception:
-            pass # Ignore les erreurs de chargement en silence
+            pass
     return models, scalers
 
 lstm_models, lstm_scalers = load_lstm_models()
@@ -103,7 +102,6 @@ tab = st.sidebar.radio("Navigation",
     ["📊 Tableau de bord", "📈 Prévisions", "⚙️ Planification"], 
     captions=["Vue d'ensemble du réseau", "Simulation et prévision", "Gestion des transferts"])
 
-# Initialisation de l'état de session pour le GAB sélectionné
 if 'selected_gab' not in st.session_state:
     st.session_state.selected_gab = None
 
@@ -114,10 +112,8 @@ if tab == "📊 Tableau de bord":
     st.title("Dashboard de Trésorerie")
     st.markdown("Accueil > Tableau de bord > **Vue d'ensemble**")
 
-    # --- Préparation des données pour l'affichage ---
     df_latest = df.loc[df.groupby('num_gab')['ds'].idxmax()].copy()
 
-    # --- Calculs dynamiques des KPIs ---
     cash_disponible_total = df_latest['total_montant'].sum()
     seuil_critique = 100000
     agences_a_risque = df_latest[df_latest['total_montant'] < seuil_critique].shape[0]
@@ -126,17 +122,52 @@ if tab == "📊 Tableau de bord":
 
     st.info(f"⚠️ **La disponibilité réseau est de {dispo_reseau:.0f}%.** {agences_a_risque} GAB(s) présentent un risque critique.")
 
-    # --- Affichage des KPIs dynamiques ---
+    # --- Affichage des KPIs dynamiques (CORRIGÉ) ---
     kpi_cols = st.columns(4)
-    kpi_cols[0].markdown(f'<div class="kpi-card"><div class="kpi-title">💵 Cash Disponible</div><div class="kpi-value">{cash_disponible_total/1000000:.2f}M MAD</div><div class="kpi-desc">Total sur le réseau</div></div>', unsafe_allow_html=True)
-    kpi_cols[1].markdown(f'<div class="kpi-card"><div class="kpi-title">🏢 GABs à Risque</div><div class="kpi-value">{agences_a_risque}</div><div class="kpi-desc">Cash sous le seuil critique</div></div>', unsafe_allow_html=True)
-    kpi_cols[2].markdown(f'<div class="kpi-card"><div class="kpi-title">🚚 Transferts à Prévoir</div><div class="kpi-value">{transferts_a_prevoir/1000:.0f}K MAD</div><div class="kpi-desc">Montant total à couvrir</div></div>', unsafe_allow_html=True)
-    kpi_cols[3].markdown(f'<div class="kpi-card"><div class="kpi-title">🌐 Disponibilité Réseau</div><div class="kpi-value">{dispo_reseau:.0f}%</div><div class="kpi-desc">GABs opérationnels</div></div>', unsafe_allow_html=True)
+    
+    # KPI 1
+    html_kpi1 = f"""
+    <div class="kpi-card">
+        <div class="kpi-title">💵 Cash Disponible</div>
+        <div class="kpi-value">{cash_disponible_total/1000000:.2f}M MAD</div>
+        <div class="kpi-desc">Total sur le réseau</div>
+    </div>
+    """
+    kpi_cols[0].markdown(html_kpi1, unsafe_allow_html=True)
+
+    # KPI 2
+    html_kpi2 = f"""
+    <div class="kpi-card">
+        <div class="kpi-title">🏢 GABs à Risque</div>
+        <div class="kpi-value">{agences_a_risque}</div>
+        <div class="kpi-desc">Cash sous le seuil critique</div>
+    </div>
+    """
+    kpi_cols[1].markdown(html_kpi2, unsafe_allow_html=True)
+
+    # KPI 3
+    html_kpi3 = f"""
+    <div class="kpi-card">
+        <div class="kpi-title">🚚 Transferts à Prévoir</div>
+        <div class="kpi-value">{transferts_a_prevoir/1000:.0f}K MAD</div>
+        <div class="kpi-desc">Montant total à couvrir</div>
+    </div>
+    """
+    kpi_cols[2].markdown(html_kpi3, unsafe_allow_html=True)
+
+    # KPI 4
+    html_kpi4 = f"""
+    <div class="kpi-card">
+        <div class="kpi-title">🌐 Disponibilité Réseau</div>
+        <div class="kpi-value">{dispo_reseau:.0f}%</div>
+        <div class="kpi-desc">GABs opérationnels</div>
+    </div>
+    """
+    kpi_cols[3].markdown(html_kpi4, unsafe_allow_html=True)
     
     st.markdown("  
 ", unsafe_allow_html=True)
 
-    # --- Tableau principal et Panneau de détails ---
     main_col, detail_col = st.columns([0.6, 0.4])
     with main_col:
         st.subheader("État du réseau")
@@ -148,7 +179,6 @@ if tab == "📊 Tableau de bord":
 
         df_latest['État'] = df_latest['total_montant'].apply(get_status_html)
         
-        # Affichage du tableau ligne par ligne pour la cliquabilité
         header_cols = st.columns((1, 2, 2, 2, 1))
         header_cols[0].markdown("**ID GAB**")
         header_cols[1].markdown("**Agence**")
@@ -163,7 +193,6 @@ if tab == "📊 Tableau de bord":
             row_cols[2].write(f"{row['total_montant']/1000:,.0f} K MAD")
             row_cols[3].write(row['region'])
             row_cols[4].markdown(row['État'], unsafe_allow_html=True)
-            # Le bouton invisible couvre la ligne pour la rendre cliquable
             if row_cols[0].button(" ", key=f"btn_{row['num_gab']}"):
                 st.session_state.selected_gab = row['num_gab']
                 st.rerun()
@@ -178,9 +207,7 @@ if tab == "📊 Tableau de bord":
             
             st.subheader(f"Détails : {gab_data['agence']}")
             st.markdown(f"**ID GAB :** {gab_id} | **Région :** {gab_data['region']}")
-            
             st.metric("Cash disponible actuel", f"{gab_data['total_montant']/1000:,.0f} K MAD")
-            
             st.markdown("---")
             st.markdown("**Évolution du Cash Disponible**")
             
@@ -191,12 +218,7 @@ if tab == "📊 Tableau de bord":
             st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("**Historique des Transferts (Exemple)**")
-            # Données fictives pour l'historique
-            transfer_data = {
-                'Date': pd.to_datetime(['2025-05-20', '2025-05-12']),
-                'Montant (MAD)': [150000, 200000],
-                'Type': ['Entrant', 'Entrant']
-            }
+            transfer_data = {'Date': pd.to_datetime(['2025-05-20', '2025-05-12']), 'Montant (MAD)': [150000, 200000], 'Type': ['Entrant', 'Entrant']}
             st.dataframe(pd.DataFrame(transfer_data), use_container_width=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
@@ -229,7 +251,6 @@ elif tab == "📈 Prévisions":
 
                 y_scaled = scaler.transform(df_gab[['y']].values)
                 
-                # Prévisions futures
                 last_sequence = y_scaled[-n_steps:].reshape(1, n_steps, 1)
                 future_preds_adjusted = []
                 future_dates = [df_gab["ds"].max() + pd.Timedelta(weeks=i+1) for i in range(period_forecast)]
@@ -241,7 +262,6 @@ elif tab == "📈 Prévisions":
                     future_preds_adjusted.append(pred_adjusted)
                     current_sequence = np.append(current_sequence[:, 1:, :], pred_scaled.reshape(1, 1, 1), axis=1)
 
-                # Graphique
                 fig_pred = go.Figure()
                 fig_pred.add_trace(go.Scatter(x=df_gab['ds'], y=df_gab['y'], mode="lines", name="Montant réel"))
                 fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds_adjusted, mode="lines+markers", name=f"Prévisions ajustées ({variation}%)", line=dict(color='red', dash='dash')))
@@ -257,6 +277,4 @@ elif tab == "📈 Prévisions":
 elif tab == "⚙️ Planification":
     st.title("Planification des Transferts")
     st.info("Cette section est en cours de construction. Elle contiendra le calendrier et la gestion des plans de transfert.")
-    # Vous pouvez utiliser une image de la maquette comme aperçu
     st.image("https://i.imgur.com/3g6gL01.png", caption="Aperçu de la vue de planification." )
-
