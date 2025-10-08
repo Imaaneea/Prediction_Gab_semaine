@@ -66,8 +66,9 @@ body, .block-container {
 
 .kpi-value {
     color: #0b5394;
-    font-size: 28px;
+    font-size: 22px; /* <-- réduit de 28px à 22px */
     font-weight: 700;
+    white-space: nowrap; /* <-- empêche le retour à la ligne */
 }
 
 .kpi-sub {
