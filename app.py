@@ -66,9 +66,9 @@ body, .block-container {
 
 .kpi-value {
     color: #0b5394;
-    font-size: 22px; /* <-- réduit de 28px à 22px */
+    font-size: 22px;
     font-weight: 700;
-    white-space: nowrap; /* <-- empêche le retour à la ligne */
+    white-space: nowrap;
 }
 
 .kpi-sub {
@@ -111,7 +111,7 @@ body, .block-container {
 }
 
 /* ====== Sidebar ====== */
-.css-1d391kg {  /* classe Streamlit sidebar */
+.css-1d391kg {  
     background-color: #ffffff !important;
     padding: 20px;
     border-radius: 15px;
@@ -158,7 +158,7 @@ st.markdown("""
 def load_data():
     try:
         df = pd.read_csv(
-            "df_weekly_clean.csv",
+            "df_weekly_clean_anonymized.csv",
             encoding="utf-8-sig",
             sep=",",
             on_bad_lines="skip"
@@ -351,6 +351,7 @@ if tab == "Prévisions des GABs":
         period_forecast = st.sidebar.selectbox("Période de prévision", [1,2,4,6])
         variation = st.sidebar.slider("Facteur de variation (%)", -50,50,0)
 
+        # On utilise df_anonymized pour filtrer les données LSTM
         df_gab = df[df["num_gab"] == gab_selected].sort_values("ds")
         if len(df_gab) < 52:
             st.warning("Pas assez de données pour la prévision LSTM (min 52 semaines).")
@@ -385,16 +386,7 @@ if tab == "Prévisions des GABs":
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_true, mode="lines+markers", name="Montant réel"))
                 fig_pred.add_trace(go.Scatter(x=dates, y=y_pred.flatten(), mode="lines+markers", name="Prédiction LSTM"))
                 fig_pred.add_trace(go.Scatter(x=future_dates, y=future_preds, mode="lines+markers", name=f"Prévisions ajustées ({variation}%)"))
-                fig_pred.update_layout(title=f"Prévision LSTM GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant retiré (MAD)")
+                fig_pred.update_layout(title=f"Prévision LSTM GAB {gab_selected}", xaxis_title="Date", yaxis_title="Montant retrait (MAD)")
                 st.plotly_chart(fig_pred, use_container_width=True)
-
-                df_csv = pd.DataFrame({
-                    "ds": list(dates)+future_dates,
-                    "y_true_dh": list(y_true)+[None]*period_forecast,
-                    "y_pred_dh": list(y_pred.flatten())+future_preds
-                })
-                st.download_button("Télécharger CSV", df_csv.to_csv(index=False), file_name=f"pred_{gab_selected}.csv", mime="text/csv")
-
             except Exception as e:
-
-                st.error(f"Erreur lors des prévisions: {e}")
+                st.error(f"Erreur lors de la prévision : {e}")
