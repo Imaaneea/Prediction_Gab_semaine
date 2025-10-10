@@ -396,4 +396,5 @@ if tab == "Prévisions des GABs":
                 st.download_button("Télécharger CSV", df_csv.to_csv(index=False), file_name=f"pred_{gab_selected}.csv", mime="text/csv")
 
             except Exception as e:
+
                 st.error(f"Erreur lors des prévisions: {e}")
